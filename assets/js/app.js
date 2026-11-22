@@ -178,7 +178,7 @@ async function fetchQuote() {
     if (e.status === 429) {
       S.quoteErr = '';
       S.quoting = true;
-      quoteTimer = setTimeout(() => fetchQuote().catch(() => {}), 2500);
+      quoteTimer = setTimeout(() => fetchQuote().catch(() => {}), e.retryAfterMs || 4000);
     } else {
       S.quote = null;
       S.quoteErr = e.message || 'Could not get a quote.';
@@ -500,8 +500,12 @@ async function doSwap() {
     setTimeout(refreshBalances, 1200);
     setTimeout(refreshBalances, 6000);
   } catch (e) {
-    console.error(e);
-    toast('err', 'Swap failed', e.message || String(e), 10000);
+    if (e.status === 429) {
+      toast('', 'Busy', 'The free quote service is busy. Nothing was sent. Try again in a few seconds.');
+    } else {
+      console.error(e);
+      toast('err', 'Swap failed', e.message || String(e), 10000);
+    }
   } finally {
     S.busy = false;
     S.confirmImpact = false;

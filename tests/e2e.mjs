@@ -86,11 +86,20 @@ async function main() {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   const orders = [];
+  const orderTimes = [];
   const executes = [];
+  const rpcHits = [];
+  let sent429 = false;
 
   await ctx.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   await ctx.route('https://api.jup.ag/swap/v2/order**', async (r) => {
     const u = new URL(r.request().url());
+    orderTimes.push(Date.now());
+    if (!sent429) {
+      // First call is rate limited: the app must wait and retry on its own.
+      sent429 = true;
+      return r.fulfill({ status: 429, json: { error: 'Rate limit exceeded' }, headers: { 'access-control-allow-origin': '*', 'x-ratelimit-reset': String(Math.ceil(Date.now() / 1000) + 1) } });
+    }
     orders.push(Object.fromEntries(u.searchParams));
     await r.fulfill({ json: orderResponse(u.searchParams), headers: { 'access-control-allow-origin': '*' } });
   });
@@ -103,13 +112,20 @@ async function main() {
       headers: { 'access-control-allow-origin': '*' },
     });
   });
+  // First free RPC is down; the app must fall back to the next one.
+  await ctx.route('https://solana-rpc.publicnode.com/**', async (r) => {
+    rpcHits.push('publicnode');
+    await r.fulfill({ status: 503, body: 'down', headers: { 'access-control-allow-origin': '*' } });
+  });
   await ctx.route('https://api.mainnet-beta.solana.com/**', async (r) => {
     const req = JSON.parse(r.request().postData());
+    rpcHits.push('mainnet-beta:' + req.method);
     let result;
     if (req.method === 'getBalance') result = { context: { slot: 1 }, value: 2_000_000_000 };
     else if (req.method === 'getTokenAccountsByOwner') {
-      const usdc = req.params[1].mint === RECIPIENT;
-      result = { context: { slot: 1 }, value: usdc ? [{ account: { data: { parsed: { info: { tokenAmount: { amount: '50000000' } } } } } }] : [] };
+      assert.equal(req.params[1].programId, 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+      const acct = (mint, amount) => ({ account: { data: { parsed: { info: { mint, tokenAmount: { amount } } } } } });
+      result = { context: { slot: 1 }, value: [acct(RECIPIENT, '30000000'), acct(RECIPIENT, '20000000'), acct('Other1111111111111111111111111111111111111', '7')] };
     }
     await r.fulfill({ json: { jsonrpc: '2.0', id: req.id, result }, headers: { 'access-control-allow-origin': '*' } });
   });
@@ -117,7 +133,7 @@ async function main() {
   await ctx.addInitScript(mockWallet);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_FAILED/.test(m.text())) errors.push(m.text()); });
+  page.on('console', (m) => { if (m.type() === 'error' && !/fonts|ERR_FAILED|Failed to load resource/.test(m.text())) errors.push(m.text()); });
 
   const cta = page.locator('#cta');
 
@@ -220,7 +236,14 @@ async function main() {
   await page.click('#disconnectBtn');
   await page.waitForFunction(() => document.querySelector('#walletBtn').textContent === 'Connect wallet');
 
-  // 14. Mobile layout has no horizontal scroll
+  // 14. Free-API behaviour: 429 retried, quotes paced to the keyless limit, RPC fallback
+  assert.ok(sent429, 'rate-limit path exercised');
+  const gaps = orderTimes.slice(1).map((t, i) => t - orderTimes[i]);
+  assert.ok(Math.min(...gaps) >= 1900, `quote requests too close together: ${Math.min(...gaps)}ms`);
+  assert.ok(rpcHits.includes('publicnode') && rpcHits.includes('mainnet-beta:getBalance'), 'RPC fallback used');
+  assert.ok(rpcHits.filter((h) => h === 'publicnode').length <= 2, 'working RPC is remembered across reloads');
+
+  // 15. Mobile layout has no horizontal scroll
   const m = await browser.newContext({ ...devices['iPhone 13'] });
   await m.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   const mp = await m.newPage();

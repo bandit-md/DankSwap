@@ -11,7 +11,7 @@ This is Phase 1 from the project outline: a working swap app for real users on S
 | `index.html` | Landing page (from the Phase 0 design), with live/roadmap status on every feature |
 | `app.html` | The swap app |
 | `risks.html` | Risk disclosure for users |
-| `assets/js/config.js` | **All settings**: API key, RPC, fee account, tokens |
+| `assets/js/config.js` | **All settings**: API endpoints, fee account, tokens |
 | `assets/js/app.js` | Swap UI and flow |
 | `assets/js/api.js` | Jupiter Swap API V2 (`/order`, `/execute`) and Solana RPC balance reads |
 | `assets/js/wallet.js` | Wallet Standard client (Phantom, Solflare, Backpack and others), mobile deep links |
@@ -19,7 +19,7 @@ This is Phase 1 from the project outline: a working swap app for real users on S
 | `vercel.json`, `_headers` | Security headers (CSP, no framing, HSTS) for Vercel / Netlify / Cloudflare Pages |
 | `tests/` | Unit tests, end-to-end browser test, local server |
 
-No build step, no dependencies, no backend. Deploy the folder as static files.
+No build step, no dependencies, no backend, and **only free, keyless APIs**: no sign-ups, no API keys, no monthly bills. Deploy the folder as static files on any free host.
 
 ## How a swap works
 
@@ -30,14 +30,25 @@ No build step, no dependencies, no backend. Deploy the folder as static files.
 
 Safety rails: slippage limit on every trade (Auto by default), a warning above 1% price impact and a two-tap confirmation above 5%, a SOL reserve kept back on **Max**, recipient address validation, and readable messages for every Jupiter error code.
 
+## Free APIs used
+
+| Service | Used for | Cost |
+|---|---|---|
+| Jupiter Swap API V2 (keyless) | Quotes, routing, transaction landing, gasless swaps | Free, no key |
+| PublicNode / api.mainnet-beta.solana.com / dRPC public RPC | Wallet balances | Free, no key |
+| Google Fonts | Inter and JetBrains Mono | Free |
+| Solscan | Transaction links | Free |
+
+Cost to run: a domain name, plus a free static host (Vercel, Netlify, Cloudflare Pages or GitHub Pages).
+
 ## Configuration
 
-Edit `assets/js/config.js` before deploying.
+Edit `assets/js/config.js` before deploying. The defaults work as-is.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `JUPITER_API_KEY` | empty | Keyless access is about 1 request per 2 s per user IP. That works, but quotes feel slow under load. Get a free key at [developers.jup.ag/portal](https://developers.jup.ag/portal). The key is visible in the browser, which is how Jupiter keys are meant to be used from frontends; restrict it in the portal if offered. |
-| `RPC_URL` | public mainnet | Used only for balances. The public endpoint rate-limits hard; use Helius, Triton, QuickNode or similar. If balances fail to load, swaps still work. |
+| `JUPITER_API` | Jupiter Swap API V2, keyless | 30 requests/min per caller. Calls come from each visitor's browser, so each visitor has their own allowance. The app spaces quote requests 2.1 s apart and retries automatically on a 429. Do not add a free-tier key: free keys are capped at 1 request/s for the whole organisation, shared by every visitor. |
+| `RPC_URLS` | PublicNode, Solana Foundation, dRPC public endpoints | Free, keyless, used only for balances. Tried in order; the first that works is remembered. If all fail, balances show "—" and swaps still work. |
 | `REFERRAL_ACCOUNT` | empty | Empty means DankSwap charges nothing. See Revenue below. |
 | `REFERRAL_FEE_BPS` | 50 | Jupiter accepts 50–255 bps. |
 
