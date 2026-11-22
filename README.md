@@ -14,9 +14,13 @@ This is Phase 1 from the project outline: a working swap app for real users on S
 | `assets/js/config.js` | **All settings**: API endpoints, fee account, tokens |
 | `assets/js/app.js` | Swap UI and flow |
 | `assets/js/api.js` | Jupiter Swap API V2 (`/order`, `/execute`) and Solana RPC balance reads |
-| `assets/js/wallet.js` | Wallet Standard client (Phantom, Solflare, Backpack and others), mobile deep links |
+| `assets/js/wallet.js` | Wallet Standard client plus older injected wallets (Phantom, Solflare, Backpack, Trust, Coinbase, OKX, Bitget, Exodus), mobile deep links |
+| `assets/js/compat.js` | Runs first: polyfills, embedded-mode flag, clear message on old browsers or `file://` |
+| `assets/vendor/solana-web3.iife.min.js` | web3.js 1.98.4 (MIT), loaded only when an older injected wallet is used |
+| `embed.js` | One-line widget to put the swap on any other website |
+| `manifest.webmanifest`, `assets/*.png` | Add-to-home-screen icons and link-preview image |
 | `assets/js/lib.js` | Pure helpers: amount math, address validation, error messages |
-| `vercel.json`, `_headers` | Security headers (CSP, no framing, HSTS) for Vercel / Netlify / Cloudflare Pages |
+| `vercel.json`, `_headers`, `.htaccess`, `web.config`, `firebase.json`, `docs/nginx.conf`, `.nojekyll` | Security headers for Vercel, Netlify, Cloudflare Pages, Apache/cPanel, IIS/Azure, Firebase, Nginx, GitHub Pages |
 | `tests/` | Unit tests, end-to-end browser test, local server |
 
 No build step, no dependencies, no backend, and **only free, keyless APIs**: no sign-ups, no API keys, no monthly bills. Deploy the folder as static files on any free host.
@@ -76,13 +80,15 @@ Wallet extensions work on `http://127.0.0.1`. Use a small amount for your first 
 
 ```bash
 npm test          # unit tests (node --test), no install needed
-npm run e2e       # browser test; needs Playwright with Chromium installed
+npm run e2e       # browser tests; need Playwright with Chromium installed
 ```
 
-The e2e test drives the real app in Chromium with a mock Wallet Standard wallet and mocked Jupiter and RPC responses: quoting, connecting, swapping, insufficient balance, Max, recipient address, wallet rejection, high price impact confirmation, flip, slippage, silent reconnect, disconnect, mobile layout and mobile deep links.
+`tests/compat.e2e.mjs` covers compatibility: an older injected wallet signing a real v0 transaction, the embed widget on another origin (auto-resize, new-tab fallback, landing page refusing to be framed), iPhone, iPad, Pixel and Galaxy layouts (no sideways scroll, 16px inputs so iOS doesn't zoom, back button closes dialogs), the old-browser notice, opening from disk, and the manifest and preview images.
 
-## Deploy
+The main e2e test drives the real app in Chromium with a mock Wallet Standard wallet and mocked Jupiter and RPC responses: quoting, connecting, swapping, insufficient balance, Max, recipient address, wallet rejection, high price impact confirmation, flip, slippage, silent reconnect, disconnect, mobile layout and mobile deep links.
 
-Any static host works. Vercel (`vercel.json`) and Netlify or Cloudflare Pages (`_headers`) pick up the security headers automatically. On other hosts, copy the headers from `_headers`. Serve over HTTPS on your own domain; never let the app be framed.
+## Deploy, phones and embedding
+
+Any static host works; config for every common host is included. See [docs/HOSTING.md](docs/HOSTING.md) for per-host steps, supported phones and browsers, and how to put the swap on WordPress, Wix, Shopify, Squarespace, Webflow, Notion and other sites.
 
 See [docs/LAUNCH.md](docs/LAUNCH.md) for the pre-launch checklist.

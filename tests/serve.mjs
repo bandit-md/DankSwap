@@ -14,26 +14,37 @@ const TYPES = {
   '.svg': 'image/svg+xml',
   '.json': 'application/json',
   '.png': 'image/png',
+  '.webmanifest': 'application/manifest+json',
 };
 
-// Mirror production security headers from _headers so tests catch CSP breakage.
-const HEADERS = {};
+// Mirror production security headers from _headers (Netlify/Cloudflare format) so tests catch
+// CSP and framing problems. "/*" applies everywhere; exact paths add to it.
+const RULES = {};
 try {
+  let current = null;
   for (const line of readFileSync(join(ROOT, '_headers'), 'utf8').split('\n')) {
-    const m = line.match(/^\s+([A-Za-z-]+):\s*(.+)$/);
-    if (m && m[1] !== 'Strict-Transport-Security') HEADERS[m[1]] = m[2];
+    if (/^\//.test(line)) {
+      current = line.trim();
+      RULES[current] = RULES[current] || {};
+    } else {
+      const m = line.match(/^\s+([A-Za-z-]+):\s*(.+)$/);
+      if (m && current && m[1] !== 'Strict-Transport-Security') RULES[current][m[1]] = m[2];
+    }
   }
 } catch (_) {}
+const headersFor = (path) => ({ ...(RULES['/*'] || {}), ...(RULES[path] || {}) });
 
-export function startServer(port = 0) {
+export function startServer(port = 0, { extra } = {}) {
   const server = http.createServer(async (req, res) => {
     try {
-      let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+      if (extra && extra(req, res)) return;
+      const reqPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+      let p = reqPath;
       if (p.endsWith('/')) p += 'index.html';
       const file = normalize(join(ROOT, p));
       if (!file.startsWith(ROOT)) throw new Error('outside root');
       const body = await readFile(file);
-      res.writeHead(200, { ...HEADERS, 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' });
+      res.writeHead(200, { ...headersFor(reqPath), 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' });
       res.end(body);
     } catch (_) {
       res.writeHead(404);

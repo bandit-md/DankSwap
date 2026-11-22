@@ -7,6 +7,6 @@
   "scripts": {
     "start": "node tests/serve.mjs 8080",
     "test": "node --test tests/lib.test.mjs",
-    "e2e": "node tests/e2e.mjs"
+    "e2e": "node tests/e2e.mjs && node tests/compat.e2e.mjs"
   }
 }

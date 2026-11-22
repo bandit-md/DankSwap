@@ -22,6 +22,7 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 
+const EMBEDDED = document.documentElement.classList.contains('is-embedded');
 const PREFS_KEY = 'dankswap.prefs';
 const HISTORY_KEY = 'dankswap.history';
 
@@ -342,6 +343,13 @@ function renderWalletList() {
   const list = $('walletList');
   list.replaceChildren();
   const ws = getWallets();
+  if (EMBEDDED) {
+    // Some wallets do not connect inside frames on other websites. Always offer the full page.
+    const full = new URL(location.href);
+    full.searchParams.delete('embed');
+    list.append(el('a', { class: 'list-item', href: full.href, target: '_blank', rel: 'noopener' },
+      el('span', { class: 'grow', text: 'Open DankSwap in a new tab' }), el('span', { class: 'right', text: '↗' })));
+  }
   if (ws.length) {
     for (const w of ws) {
       list.append(
@@ -358,6 +366,8 @@ function renderWalletList() {
     for (const l of mobileDeepLinks()) {
       list.append(el('a', { class: 'list-item', href: l.href, rel: 'noopener' }, el('span', { class: 'grow', text: `Open in ${l.name}` }), el('span', { class: 'right', text: '↗' })));
     }
+    list.append(el('button', { class: 'list-item', type: 'button', onclick: copyPageLink },
+      el('span', { class: 'grow' }, document.createTextNode('Copy link'), el('small', { text: 'Paste it into the browser inside any other wallet app' }))));
   } else {
     list.append(el('p', { text: 'No Solana wallet found in this browser. Install one, then reload this page:' }));
     for (const l of INSTALL_LINKS) {
@@ -539,19 +549,57 @@ function renderHistory() {
   body.replaceChildren(ul);
 }
 
+async function copyPageLink() {
+  const url = new URL(location.href);
+  url.searchParams.delete('embed');
+  try {
+    await navigator.clipboard.writeText(url.href);
+    toast('ok', 'Link copied', 'Open your wallet app, go to its browser and paste the link.', 5000);
+  } catch (_) {
+    window.prompt('Copy this link:', url.href);
+  }
+}
+
 /* ---------------- modals ---------------- */
+// On phones the back button closes an open dialog instead of leaving the page.
 let lastFocus = null;
+let ownBacks = 0; // history.back() calls we made ourselves; their popstate is ignored
 function openModal(id) {
   lastFocus = document.activeElement;
   const m = $(id);
+  const wasOpen = anyModalOpen();
   m.classList.add('open');
+  document.body.classList.add('modal-open');
+  if (!EMBEDDED && !wasOpen) {
+    try {
+      history.pushState({ dankswapModal: id }, '');
+    } catch (_) {}
+  }
   const f = m.querySelector('button, a, input');
-  if (f) f.focus();
+  if (f) f.focus({ preventScroll: true });
 }
-function closeModal(id) {
-  $(id).classList.remove('open');
-  if (lastFocus && lastFocus.focus) lastFocus.focus();
+function closeModal(id, fromHistory = false) {
+  const m = $(id);
+  if (!m.classList.contains('open')) return;
+  m.classList.remove('open');
+  if (!anyModalOpen()) document.body.classList.remove('modal-open');
+  if (!fromHistory && !EMBEDDED && history.state && history.state.dankswapModal) {
+    try {
+      ownBacks++;
+      history.back();
+    } catch (_) {
+      ownBacks--;
+    }
+  }
+  if (lastFocus && lastFocus.focus) lastFocus.focus({ preventScroll: true });
 }
+window.addEventListener('popstate', () => {
+  if (ownBacks > 0) {
+    ownBacks--;
+    return;
+  }
+  document.querySelectorAll('.modal-bg.open').forEach((m) => closeModal(m.id, true));
+});
 function anyModalOpen() {
   return !!document.querySelector('.modal-bg.open');
 }
@@ -744,7 +792,28 @@ function bind() {
   });
 }
 
+/* ---------------- embedding ---------------- */
+function setupEmbedded() {
+  if (!EMBEDDED) return;
+  // Links leave the frame instead of navigating inside it.
+  document.querySelectorAll('a[href]:not([target])').forEach((a) => {
+    a.target = '_blank';
+    a.rel = 'noopener';
+  });
+  // Tell the host page how tall we are so embed.js can size the frame.
+  const post = () => {
+    try {
+      // body height = content height (documentElement would never report less than the frame).
+      window.parent.postMessage({ type: 'dankswap:height', height: Math.ceil(document.body.getBoundingClientRect().height) }, '*');
+    } catch (_) {}
+  };
+  if ('ResizeObserver' in window) new ResizeObserver(post).observe(document.body);
+  window.addEventListener('load', post);
+  post();
+}
+
 /* ---------------- boot ---------------- */
+setupEmbedded();
 loadPrefs();
 renderTokenButtons();
 bind();

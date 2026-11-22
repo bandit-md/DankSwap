@@ -7,7 +7,8 @@ Must do before sharing the link:
 - [ ] Nothing to sign up for: Jupiter and the RPC endpoints are free and keyless by default. Leave them as they are.
 - [ ] Decide on revenue: set up the Jupiter referral account and token accounts for SOL, USDC and USDT, or leave `REFERRAL_ACCOUNT` empty. Keep the treasury in a multisig (for example Squads).
 - [ ] Buy the domain, deploy to a free tier of Vercel, Netlify or Cloudflare Pages, and check the security headers are served (`curl -I https://yourdomain`).
-- [ ] Do three real swaps with small amounts from Phantom, Solflare and a mobile wallet's in-app browser: SOL→USDC, USDC→USDT, USDT→SOL, and one "send to a different address".
+- [ ] Change `og:image` and `twitter:image` in the three HTML pages to the absolute URL on your domain (see docs/HOSTING.md, Link previews).
+- [ ] Do three real swaps with small amounts from Phantom, Solflare, a mobile wallet's in-app browser (iPhone and Android), and the embed widget on a test page: SOL→USDC, USDC→USDT, USDT→SOL, and one "send to a different address".
 - [ ] Legal review: terms of use, whether an interface fee changes your obligations where you operate, and whether to geo-block restricted regions at the host or CDN. `risks.html` is a plain-language disclosure, not legal terms.
 - [ ] Decide whether the landing headline ("Trade in private") should wait for Phase 2. The page labels every feature as Live or Phase N, but retail users may read only the headline.
 
