@@ -52,7 +52,7 @@ Public, in declaration order: `root, publicAmount, extDataHash, mintField, input
 - Swap: `IsZero(swapAmount)`; zero => `swapCommitment === 0`; non-zero => `swapCommitment === Poseidon(swapAmount, swapPubkey, swapBlinding, swapMintField)` and `swapMintField != mintField`.
 - `extDataHash` bound with a square.
 
-Compiled with `--O2`. Size: see the build log (`snarkjs r1cs info`).
+Compiled with `--O2` (circom 2.2.2 via circom2 0.2.22): **13016 constraints**, 11 public inputs, 55 private witness inputs. Minimum ptau power 14; the dev setup uses 2^16 per spec §11. Full build takes ~17 min on 4 CPUs, almost all of it `powersoftau prepare phase2` (cached afterwards). Proving in Node (snarkjs 0.7.5, 4 CPUs): ~1.2-2.1 s per proof.
 
 ## Encodings (spec §7, groth16-solana 0.2)
 
