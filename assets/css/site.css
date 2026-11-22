@@ -284,6 +284,14 @@ input[type=range] { width: 100%; accent-color: var(--accent); margin: 12px 0 18p
   .footer a { margin: 0 16px 0 0; }
 }
 
+.nav-right { display: flex; align-items: center; gap: 14px; }
+.nav-link { color: var(--muted); text-decoration: none; font-size: 15px; display: inline-flex; align-items: center; gap: 6px; }
+.nav-link:hover { color: var(--text); }
+.nav-link .tag, .nav-links a .tag { font-size: 10px; padding: 1px 6px; }
+.is-embedded .nav-link { display: none; }
+@media (max-width: 560px) { .nav-link .tag { display: none; } .nav-right { gap: 10px; } }
+@media (max-width: 420px) { .nav-right .nav-link { display: none; } }
+
 /* ---------- Compatibility, phones, embedding ---------- */
 body.modal-open { overflow: hidden; }
 .compat-bar { position: relative; z-index: 100; background: #3a2a00; color: #ffe2a8; border-bottom: 1px solid #6b4e00; padding: 12px 16px; font-size: 14px; text-align: center; }

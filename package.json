@@ -6,7 +6,11 @@
   "type": "module",
   "scripts": {
     "start": "node tests/serve.mjs 8080",
-    "test": "node --test tests/lib.test.mjs",
-    "e2e": "node tests/e2e.mjs && node tests/compat.e2e.mjs"
+    "test": "node --test tests/lib.test.mjs tests/pool.sdk.test.mjs",
+    "test:circuits": "cd circuits && npm test",
+    "test:relayer": "cd relayer && npm test",
+    "test:program": "cargo test -p dankswap-pool",
+    "e2e": "node tests/e2e.mjs && node tests/compat.e2e.mjs && node tests/pool.e2e.mjs",
+    "test:all": "npm test && npm run test:circuits && npm run test:relayer && npm run test:program && npm run e2e"
   }
 }

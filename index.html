@@ -49,6 +49,7 @@
         <a href="#utility">Utility</a>
         <a href="#fees">Fees</a>
         <a href="#security">Security</a>
+        <a href="private.html">Private <span class="tag">devnet</span></a>
         <a class="btn btn-primary" href="app.html">Launch app</a>
       </nav>
     </header>
@@ -88,10 +89,10 @@
         <h2>Four steps. One pool.</h2>
         <p class="sub">Step two runs today as a regular non-custodial swap. The shielded steps ship after independent audits.</p>
         <div class="steps">
-          <div class="step"><span class="num">01</span><h3>Shield <span class="tag">Phase 2</span></h3><p>Deposit SOL, USDC or USDT. You receive a private note only you can spend.</p></div>
+          <div class="step"><span class="num">01</span><h3>Shield <span class="tag">Devnet preview</span></h3><p>Deposit SOL, USDC or USDT. You receive a private note only you can spend.</p></div>
           <div class="step"><span class="num">02</span><h3>Swap <span class="tag tag-live">Live</span></h3><p>Trades route through aggregated Solana liquidity for the best price. Inside the pool, output is re-shielded.</p></div>
           <div class="step"><span class="num">03</span><h3>Route <span class="tag">Phase 3</span></h3><p>Need another chain? A solver fills it from inventory. You never bridge.</p></div>
-          <div class="step"><span class="num">04</span><h3>Unshield <span class="tag">Phase 2</span></h3><p>Withdraw to a fresh address with a proof that hides which deposit you spent.</p></div>
+          <div class="step"><span class="num">04</span><h3>Unshield <span class="tag">Devnet preview</span></h3><p>Withdraw to a fresh address with a proof that hides which deposit you spent.</p></div>
         </div>
       </div>
     </section>
@@ -104,7 +105,7 @@
           <div class="card span-2"><span class="tag tag-live">Live</span><h3>Best-price swaps</h3><p>SOL, USDC and USDT. Every quote races Jupiter's on-chain router against RFQ market makers and other aggregators, so you get the best fill. Many swaps are gasless.</p></div>
           <div class="card"><span class="tag tag-live">Live</span><h3>Send on swap</h3><p>Swap and deliver straight to another wallet in one transaction.</p></div>
           <div class="card"><span class="tag">Phase 2</span><h3>Private swap</h3><p>Trade with sender, receiver and amount unlinked on-chain.</p></div>
-          <div class="card"><span class="tag">Phase 2</span><h3>Gasless exits</h3><p>A relayer pays gas and takes its fee from the amount. No funded fresh wallet.</p></div>
+          <div class="card"><span class="tag">Devnet preview</span><h3>Gasless exits</h3><p>A relayer pays gas and takes its fee from the amount. No funded fresh wallet.</p></div>
           <div class="card"><span class="tag">Phase 4</span><h3>Optional view keys</h3><p>Prove a transaction to an auditor with a read-only key, and nothing else.</p></div>
           <div class="card span-2">
             <span class="tag">Phase 3</span><h3>Eight chains</h3>
@@ -164,9 +165,9 @@
           <div class="card"><span class="tag tag-live">Live</span><h3>Non-custodial</h3><p>Your wallet signs each swap. DankSwap never holds keys or funds, and there is no account to create.</p></div>
           <div class="card"><span class="tag tag-live">Live</span><h3>Minimum-out protection</h3><p>Every trade carries a slippage limit. If the price moves past it, the transaction fails and nothing moves.</p></div>
           <div class="card"><span class="tag tag-live">Live</span><h3>Static frontend</h3><p>No servers, no tracking, no cookies. The site is plain files you can audit and self-host.</p></div>
-          <div class="card"><span class="tag">Before Phase 2</span><h3>Audited first</h3><p>The pool program and circuits ship only after independent audits, with the code open source.</p></div>
-          <div class="card"><span class="tag">Before Phase 2</span><h3>No admin key over funds</h3><p>Upgrades sit behind a timelocked multisig, then freeze.</p></div>
-          <div class="card"><span class="tag">Before Phase 2</span><h3>Compliance-aware</h3><p>Deposit screening against sanctions lists, plus optional view keys.</p></div>
+          <div class="card"><span class="tag">Before mainnet</span><h3>Audited first</h3><p>The pool program and circuits ship only after independent audits, with the code open source.</p></div>
+          <div class="card"><span class="tag">Built in</span><h3>No admin key over funds</h3><p>The pool program has no instruction that moves funds without a valid proof, and withdrawals cannot be paused. Upgrades sit behind a timelocked multisig, then freeze.</p></div>
+          <div class="card"><span class="tag">Devnet preview</span><h3>Compliance-aware</h3><p>Deposit screening against sanctions lists, plus optional view keys.</p></div>
         </div>
         <div class="chips">
           <span class="chip on">Jupiter routing</span><span class="chip on">Wallet Standard</span><span class="chip on">Static frontend</span>
@@ -181,7 +182,7 @@
         <h2>Shipping in order.</h2>
         <div class="roadmap">
           <div class="phase now"><span class="tag tag-live">Phase 1 · Live</span><h3>Solana swaps</h3><p>SOL, USDC and USDT at the best aggregated price. Send on swap.</p></div>
-          <div class="phase"><span class="tag">Phase 2</span><h3>Private pool</h3><p>Audited shield, swap, unshield and relayer on Solana mainnet.</p></div>
+          <div class="phase"><span class="tag">Phase 2 · Devnet preview</span><h3>Private pool</h3><p>Shield, private send and unshield via relayer are in <a href="private.html">devnet preview</a>. Mainnet after independent audits and a public trusted setup.</p></div>
           <div class="phase"><span class="tag">Phase 3</span><h3>Seven chain routes</h3><p>Solver-filled exits to Ethereum, BNB, Base, Arbitrum, Tron, Avalanche and Polygon.</p></div>
           <div class="phase"><span class="tag">Phase 4</span><h3>View keys and SDK</h3><p>Selective disclosure and a drop-in API for wallets.</p></div>
         </div>
@@ -205,7 +206,7 @@
         </a>
         <div><a href="app.html">App</a><a href="risks.html">Risks</a></div>
       </div>
-      <p>DankSwap is a non-custodial interface. Swaps are routed and executed by Jupiter on Solana; DankSwap never takes custody of funds. Phase 2–4 features are in development and not available. Crypto assets are volatile and transactions cannot be reversed. Not financial or legal advice. Not available where prohibited.</p>
+      <p>DankSwap is a non-custodial interface. Swaps are routed and executed by Jupiter on Solana; DankSwap never takes custody of funds. The private pool is an unaudited devnet preview: do not use real funds. Phase 3–4 features are in development. Crypto assets are volatile and transactions cannot be reversed. Not financial or legal advice. Not available where prohibited.</p>
     </div>
   </footer>
 </body>

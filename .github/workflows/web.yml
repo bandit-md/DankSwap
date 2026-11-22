@@ -1,0 +1,27 @@
+# Site, browser SDK, relayer and circuit tests (the program has its own workflow).
+name: Site, SDK, relayer and circuits
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Unit tests (site + pool SDK, parity with circuit fixtures)
+        run: npm test
+      - name: Circuit tests (real proofs + soundness cases)
+        run: cd circuits && npm ci && npm test
+      - name: Relayer tests
+        run: cd relayer && npm ci && npm test
+      - name: Browser tests (swap app, compatibility, private pool with in-browser proofs)
+        run: |
+          npm i --no-save playwright@1
+          npx playwright install --with-deps chromium
+          npm run e2e
