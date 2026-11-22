@@ -3,6 +3,7 @@ name = "dankswap-pool"
 version = "0.1.0"
 description = "DankSwap Phase 2 shielded UTXO pool (Groth16, Tornado-Nova style). UNAUDITED, devnet only."
 edition = "2021"
+rust-version = "1.89"
 license = "MIT"
 publish = false
 
@@ -23,22 +24,21 @@ anchor-debug = []
 
 [dependencies]
 anchor-lang = "=1.2.2"
-anchor-spl = { version = "=1.2.2", default-features = false, features = ["token", "solana-v3"] }
+anchor-spl = { version = "=1.2.2", default-features = false, features = ["token", "token_2022", "solana-v3"] }
 groth16-solana = "=0.2.0"
 solana-poseidon = "=4.0.0"
+bytemuck = { version = "1", features = ["derive", "min_const_generics"] }
 solana-sha256-hasher = { version = "=3.1.0", features = ["sha2"] }
 
 [dev-dependencies]
 serde_json = "1"
 num-bigint = "0.4"
-litesvm = "=0.17.0"
+litesvm = "=0.16.0"
 solana-keypair = "3"
 solana-signer = "3"
 solana-transaction = "4"
 solana-message = "4"
-solana-instruction = "3.5"
-solana-address = "2.7"
+solana-instruction = "3.4"
+solana-address = "2.6"
 solana-account = "4"
-solana-program-pack = "3"
-spl-token-interface = "2"
 sha2 = "0.10"

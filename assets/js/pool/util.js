@@ -1,8 +1,8 @@
 // Byte, field and encoding helpers shared by the private-pool SDK and the relayer.
 // No DOM or network access: importable in browsers, Web Workers and Node 20+.
-import { base58Decode, bytesToBase64, base64ToBytes } from '../lib.js';
+import { bytesToBase64, base64ToBytes } from '../lib.js';
 
-export { base58Decode, bytesToBase64, base64ToBytes };
+export { bytesToBase64, base64ToBytes };
 
 /** BN254 scalar field (circuit field), docs/PHASE2_SPEC.md §1. */
 export const FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
@@ -13,7 +13,44 @@ export const U64_MAX = (1n << 64n) - 1n;
 export const I64_MIN = -(1n << 63n);
 export const I64_MAX = (1n << 63n) - 1n;
 
-const B58 = '123456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+// Bitcoin/Solana base58 alphabet (no 0, O, I, l). Own codec here: ../lib.js has a decoder, but the
+// pool needs exact byte round-trips for addresses and shielded addresses.
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const B58_MAP = Object.fromEntries([...B58].map((c, i) => [c, i]));
+
+/** Decode base58 into bytes; null when the string is not valid base58. */
+export function base58Decode(str) {
+  if (typeof str !== 'string' || str.length === 0) return null;
+  const bytes = [];
+  for (const ch of str) {
+    const val = B58_MAP[ch];
+    if (val === undefined) return null;
+    let carry = val;
+    for (let i = 0; i < bytes.length; i++) {
+      carry += bytes[i] * 58;
+      bytes[i] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  for (const ch of str) {
+    if (ch !== '1') break;
+    bytes.push(0);
+  }
+  return Uint8Array.from(bytes.reverse());
+}
+
+/** True when the string is a base58 32-byte Solana address. */
+export function isSolanaAddress(str) {
+  if (typeof str !== 'string') return false;
+  const s = str.trim();
+  if (s.length < 32 || s.length > 44) return false;
+  const b = base58Decode(s);
+  return !!b && b.length === 32;
+}
 
 /** Encode bytes as base58 (Bitcoin alphabet, as used by Solana). */
 export function base58Encode(bytes) {

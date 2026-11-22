@@ -7,9 +7,9 @@ export const POOL_CONFIG = {
   // 'devnet' (default) or 'mainnet'. Mainnet also needs POOL_AUDITED and real audits.
   POOL_CLUSTER: 'devnet',
 
-  // dankswap_pool program id. Placeholder until the program is deployed; while it is the
-  // placeholder the page shows "not deployed yet" and builds no transactions.
-  POOL_PROGRAM_ID: '11111111111111111111111111111111',
+  // dankswap_pool program id (programs/README.md). The page checks on-chain that the program's
+  // config account exists and shows "not deployed yet" until it does. '' = not configured.
+  POOL_PROGRAM_ID: 'FtV5X43qGc37tjUkbzxoexyg1A4oFUv9wE42d3Ukhtc6',
 
   // Relayer base URL (https, no trailing slash). It submits private sends and unshields so the
   // user's wallet never appears on-chain, and serves the commitment index used for balances.
@@ -61,9 +61,9 @@ export const POOL_CONFIG = {
   SOL_RESERVE_LAMPORTS: 10_000_000,
 };
 
-/** The placeholder program id means "not deployed". */
-export function poolDeployed(cfg = POOL_CONFIG) {
-  return !!cfg.POOL_PROGRAM_ID && cfg.POOL_PROGRAM_ID !== '11111111111111111111111111111111';
+/** A program id is configured (whether it is deployed is checked on-chain by the client). */
+export function poolConfigured(cfg = POOL_CONFIG) {
+  return typeof cfg.POOL_PROGRAM_ID === 'string' && cfg.POOL_PROGRAM_ID.length >= 32 && cfg.POOL_PROGRAM_ID !== '11111111111111111111111111111111';
 }
 
 /** Show the unaudited banner unless the cluster is mainnet and POOL_AUDITED is true (§10). */

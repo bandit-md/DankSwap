@@ -1,0 +1,15 @@
+{
+  "name": "dankswap-relayer",
+  "private": true,
+  "version": "0.1.0",
+  "description": "DankSwap private pool relayer and commitment indexer (docs/PHASE2_SPEC.md §9). UNAUDITED, devnet first.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@solana/web3.js": "1.98.4"
+  }
+}

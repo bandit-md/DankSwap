@@ -8,12 +8,13 @@
     "build": "node scripts/build.mjs",
     "vk:rust": "node scripts/vk-to-rust.mjs",
     "fixtures": "node scripts/gen-fixtures.mjs",
-    "test": "node --test --test-concurrency=1 test/"
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
   },
   "devDependencies": {
     "circom2": "0.2.22",
     "circomlib": "2.0.5",
     "circomlibjs": "0.1.7",
+    "ffjavascript": "0.3.1",
     "snarkjs": "0.7.5"
   }
 }

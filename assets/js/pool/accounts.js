@@ -31,10 +31,13 @@ export function associatedTokenAddress(web3, owner, mint) {
   return pda(web3, [pubkeyBytes(owner), pubkeyBytes(TOKEN_PROGRAM_ID), pubkeyBytes(mint)], ASSOCIATED_TOKEN_PROGRAM_ID);
 }
 
-/** The pool's vault: the pool PDA itself for native SOL (§8), else the pool PDA's token account. */
+export function vaultPda(web3, programId, mint) {
+  return pda(web3, [utf8('vault'), pubkeyBytes(mint)], programId);
+}
+
+/** The pool's vault: the pool PDA itself for native SOL, else the token account PDA ["vault", mint] (programs/dankswap-pool/src/state.rs). */
 export function vaultAddress(web3, programId, mint, native) {
-  const pool = poolPda(web3, programId, mint);
-  return native ? pool : associatedTokenAddress(web3, pool, mint);
+  return native ? poolPda(web3, programId, mint) : vaultPda(web3, programId, mint);
 }
 
 /**
@@ -48,7 +51,7 @@ export function transactAccounts(web3, { programId, mint, native, signer, nullif
   return [
     meta(signer, true, true),
     meta(configPda(web3, prog), false, false),
-    meta(poolPda(web3, prog, mint), false, true),
+    meta(poolPda(web3, prog, mint), false, false),
     meta(treePda(web3, prog, mint), false, true),
     meta(vaultAddress(web3, prog, mint, native), false, true),
     meta(nullifierPda(web3, prog, nullifiers[0]), false, true),
@@ -86,22 +89,45 @@ export async function transactInstruction(web3, accountsOpts, args) {
   });
 }
 
-/** `transact_swap`: transact accounts, then output pool/tree/vault, escrow and its token accounts, swap program, then the swap route accounts. */
-export async function transactSwapInstruction(web3, opts, args) {
-  const prog = pk(web3, opts.programId);
+/**
+ * `transact_swap` (programs/README.md): signer, config, input_pool, input_tree, input_vault,
+ * nullifier0, nullifier1, relayer_fee_account, escrow (extDataHash recipient), escrow_input_token,
+ * escrow_output_token, output_pool, output_tree, output_vault, relayer_surplus_account,
+ * swap_program, token program, system program, then the swap route accounts.
+ * Escrow token accounts are the escrow PDA's ATAs (wSOL for a SOL side); the caller must create them.
+ */
+export function transactSwapAccounts(web3, o) {
+  const prog = pk(web3, o.programId);
   const meta = (pubkey, isSigner, isWritable) => ({ pubkey: pk(web3, pubkey), isSigner, isWritable });
-  const inPool = poolPda(web3, prog, opts.mint);
+  const inPool = poolPda(web3, prog, o.mint);
   const escrow = escrowPda(web3, prog, inPool);
-  const keys = [
-    ...transactAccounts(web3, { ...opts, recipient: escrow }),
-    meta(poolPda(web3, prog, opts.outputMint), false, true),
-    meta(treePda(web3, prog, opts.outputMint), false, true),
-    meta(vaultAddress(web3, prog, opts.outputMint, opts.outputNative), false, true),
-    meta(escrow, false, false),
-    meta(associatedTokenAddress(web3, escrow, opts.mint), false, true),
-    meta(associatedTokenAddress(web3, escrow, opts.outputMint), false, true),
-    meta(opts.swapProgram, false, false),
-    ...(opts.remainingAccounts || []).map((a) => meta(a.pubkey, false, !!a.isWritable)),
+  return [
+    meta(o.signer, true, true),
+    meta(configPda(web3, prog), false, false),
+    meta(inPool, false, false),
+    meta(treePda(web3, prog, o.mint), false, true),
+    meta(vaultAddress(web3, prog, o.mint, o.native), false, true),
+    meta(nullifierPda(web3, prog, o.nullifiers[0]), false, true),
+    meta(nullifierPda(web3, prog, o.nullifiers[1]), false, true),
+    meta(o.relayerFeeAccount, false, true),
+    meta(escrow, false, true),
+    meta(associatedTokenAddress(web3, escrow, o.mint), false, true),
+    meta(associatedTokenAddress(web3, escrow, o.outputMint), false, true),
+    meta(poolPda(web3, prog, o.outputMint), false, false),
+    meta(treePda(web3, prog, o.outputMint), false, true),
+    meta(vaultAddress(web3, prog, o.outputMint, o.outputNative), false, true),
+    meta(o.relayerSurplusAccount, false, true),
+    meta(o.swapProgram, false, false),
+    meta(TOKEN_PROGRAM_ID, false, false),
+    meta(SYSTEM_PROGRAM_ID, false, false),
+    ...(o.remainingAccounts || []).map((a) => meta(a.pubkey, !!a.isSigner, !!a.isWritable)),
   ];
-  return new web3.TransactionInstruction({ programId: prog, keys, data: toBuffer(web3, await transactSwapInstructionData(args)) });
+}
+
+export async function transactSwapInstruction(web3, opts, args) {
+  return new web3.TransactionInstruction({
+    programId: pk(web3, opts.programId),
+    keys: transactSwapAccounts(web3, opts),
+    data: toBuffer(web3, await transactSwapInstructionData(args)),
+  });
 }

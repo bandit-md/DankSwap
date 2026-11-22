@@ -1,0 +1,151 @@
+# Shielded pool program (programs/) CI: host tests, SBF build, LiteSVM tests.
+# Optional manual devnet deploy (NEVER mainnet).
+#
+# Secrets for the deploy job (GitHub → Settings → Secrets and variables → Actions):
+#   DEVNET_DEPLOYER_KEYPAIR  JSON byte array of the fee payer / upgrade authority keypair (devnet SOL only)
+#   DEVNET_PROGRAM_KEYPAIR   JSON byte array of the program-id keypair whose pubkey equals declare_id!
+#                            in programs/dankswap-pool/src/lib.rs (needed for the first deploy only)
+name: Shielded pool program
+on:
+  push:
+    paths:
+      - 'programs/**'
+      - 'circuits/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Anchor.toml'
+      - '.github/workflows/program.yml'
+  pull_request:
+    paths:
+      - 'programs/**'
+      - 'circuits/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Anchor.toml'
+      - '.github/workflows/program.yml'
+  workflow_dispatch:
+    inputs:
+      deploy_devnet:
+        description: 'Deploy dankswap_pool to DEVNET after the tests pass'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: '1.97.0'
+  AGAVE_VERSION: 'v4.4.1'
+  ANCHOR_VERSION: '1.2.2'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cache/solana
+            target
+          key: program-${{ runner.os }}-${{ env.AGAVE_VERSION }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: program-${{ runner.os }}-${{ env.AGAVE_VERSION }}-
+
+      - name: Host unit tests (fixtures, Poseidon, extDataHash, Groth16)
+        run: cargo test --locked -p dankswap-pool --test fixtures
+
+      - name: Install Solana (Agave) CLI ${{ env.AGAVE_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: SBF build (dankswap_pool + mock_swap)
+        run: |
+          solana --version
+          cargo build-sbf --version
+          cargo build-sbf --manifest-path programs/dankswap-pool/Cargo.toml --sbf-out-dir target/deploy
+          cargo build-sbf --manifest-path programs/mock-swap/Cargo.toml --sbf-out-dir target/deploy
+          ls -l target/deploy
+
+      - name: LiteSVM integration tests (un-ignored)
+        run: cargo test --locked -p dankswap-pool --test litesvm -- --include-ignored --nocapture --test-threads=1
+
+      - name: Install Anchor CLI ${{ env.ANCHOR_VERSION }} (for the IDL)
+        continue-on-error: true
+        run: cargo install anchor-cli --version "$ANCHOR_VERSION" --locked
+
+      - name: Build IDL
+        continue-on-error: true
+        run: |
+          mkdir -p target/idl
+          anchor idl build -p dankswap_pool -o target/idl/dankswap_pool.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dankswap-pool-so
+          path: target/deploy/dankswap_pool.so
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dankswap-pool-idl
+          path: target/idl/dankswap_pool.json
+          if-no-files-found: warn
+
+  deploy-devnet:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy_devnet
+    runs-on: ubuntu-latest
+    environment: devnet
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dankswap-pool-so
+          path: artifacts
+
+      - name: Install Solana (Agave) CLI ${{ env.AGAVE_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${AGAVE_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Deploy to devnet (refuses any other cluster)
+        env:
+          DEVNET_DEPLOYER_KEYPAIR: ${{ secrets.DEVNET_DEPLOYER_KEYPAIR }}
+          DEVNET_PROGRAM_KEYPAIR: ${{ secrets.DEVNET_PROGRAM_KEYPAIR }}
+        run: |
+          set -euo pipefail
+          URL="https://api.devnet.solana.com"
+          DEVNET_GENESIS="EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+          GENESIS="$(solana genesis-hash --url "$URL")"
+          if [ "$GENESIS" != "$DEVNET_GENESIS" ]; then echo "Refusing: $URL is not devnet ($GENESIS)"; exit 1; fi
+          umask 077
+          if [ -z "${DEVNET_DEPLOYER_KEYPAIR}" ]; then echo "DEVNET_DEPLOYER_KEYPAIR secret missing"; exit 1; fi
+          printf '%s' "$DEVNET_DEPLOYER_KEYPAIR" > "$RUNNER_TEMP/deployer.json"
+          DECLARED="$(grep -oP 'declare_id!\("\K[1-9A-HJ-NP-Za-km-z]+' programs/dankswap-pool/src/lib.rs)"
+          echo "declare_id: $DECLARED"
+          solana config set --url "$URL" --keypair "$RUNNER_TEMP/deployer.json" >/dev/null
+          solana balance
+          if solana program show "$DECLARED" >/dev/null 2>&1; then
+            # Upgrade: deployer must be the current upgrade authority.
+            solana program deploy artifacts/dankswap_pool.so --program-id "$DECLARED" --url "$URL"
+          else
+            if [ -z "${DEVNET_PROGRAM_KEYPAIR}" ]; then echo "First deploy needs DEVNET_PROGRAM_KEYPAIR"; exit 1; fi
+            printf '%s' "$DEVNET_PROGRAM_KEYPAIR" > "$RUNNER_TEMP/program.json"
+            PID="$(solana-keygen pubkey "$RUNNER_TEMP/program.json")"
+            if [ "$PID" != "$DECLARED" ]; then echo "Program keypair $PID != declare_id $DECLARED"; exit 1; fi
+            solana program deploy artifacts/dankswap_pool.so --program-id "$RUNNER_TEMP/program.json" --url "$URL"
+          fi
+          solana program show "$DECLARED" --url "$URL"
+          rm -f "$RUNNER_TEMP/deployer.json" "$RUNNER_TEMP/program.json"

@@ -25,6 +25,13 @@ export const detBlob = (label) => {
 };
 const ZERO_BLOB = '00'.repeat(ENC_LEN);
 
+// Program id and PDAs the fixtures assume (devnet placeholder program id).
+// SOL pool = PDA ["pool", wSOL mint]; escrow = PDA ["escrow", sol_pool]. The swap
+// extData.recipient MUST be the input pool's escrow PDA (spec §5).
+export const PROGRAM_ID = 'FtV5X43qGc37tjUkbzxoexyg1A4oFUv9wE42d3Ukhtc6';
+export const SOL_POOL_PDA = '8xALSdCKU2LtuErMb7gHX1LMj7Y1ZJR5PG5EKrjW7SvQ';
+export const SOL_ESCROW_PDA = '5LXAZN9Ja6xmjjh6hWmaPckciMNDGNc12JGXs9tnQHQz';
+
 export function buildScenario() {
   const mint = WSOL_MINT;
   const mf = mintField(mint);
@@ -32,7 +39,7 @@ export function buildScenario() {
   const alice = Keypair.fromSeed(H('alice-seed'));
   const bob = Keypair.fromSeed(H('bob-seed'));
   const wallets = { alice: detPubkey('alice-wallet'), bob: detPubkey('bob-wallet'), relayer: detPubkey('relayer'),
-    recipient: detPubkey('withdraw-recipient'), escrow: detPubkey('swap-escrow-placeholder') };
+    recipient: detPubkey('withdraw-recipient'), escrow: SOL_ESCROW_PDA };
   const dummyIn = (l) => new Note({ amount: 0n, keypair: new Keypair(privKeyFromSeed(H('dummy-in:' + l))), blinding: detField('dummy-in-b:' + l), mintField: mf, index: 0 });
   const tree = new MerkleTree();
   const steps = [];

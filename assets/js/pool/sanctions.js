@@ -8,7 +8,10 @@ export const SANCTIONS_SOURCE = "https://raw.githubusercontent.com/0xB10C/ofac-s
 export const SANCTIONS_UPDATED = "2026-11-22";
 
 export const SANCTIONED_ADDRESSES = Object.freeze([
-  "6wjqWWra8ombzaw6VHrG5xpQ972jCYF6bbHiFCbWmr4U"
+  "42RLPACwZPx3vYYmxSueqsogfynBDqXK298EDsNoyoHi",
+  "6wjqWWra8ombzaw6VHrG5xpQ972jCYF6bbHiFCbWmr4U",
+  "Fc1EwQUZyTEagaDvA1utHXCcZNyG1x2PLt2DfNu1cJdH",
+  "FuCC7GoYwt5TsNTjWL23Xx9UKCvC18chjMEFPL3vJDCC"
 ]);
 
 const SET = new Set(SANCTIONED_ADDRESSES);

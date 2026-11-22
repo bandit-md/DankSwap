@@ -11,7 +11,7 @@
 // Run it on a schedule (for example weekly in CI) and redeploy the site and the relayer.
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { base58Decode } from '../assets/js/lib.js';
+import { base58Decode } from '../assets/js/pool/util.js';
 
 const OUT = fileURLToPath(new URL('../assets/js/pool/sanctions.js', import.meta.url));
 const SOURCES = [

@@ -71,7 +71,7 @@ Compiled with `--O2`. Size: see the build log (`snarkjs r1cs info`).
 | `mint.json` | `mintField` for wSOL, USDC, USDT |
 | `proofs.json` | 4 real proofs (deposit, transfer, withdraw, swap) on one SOL pool tree: snarkjs public signals, 11 public inputs (hex), `proofA/B/C` (hex, groth16-solana encoding), extData, root, leaves before/after, SHA-256 of the VK they verify against |
 
-The swap fixture uses a placeholder recipient, not the real escrow PDA.
+All proofs use the SOL pool, so recipient/relayer are system accounts. The swap fixture's recipient is the SOL pool escrow PDA `5LXAZN9Ja6xmjjh6hWmaPckciMNDGNc12JGXs9tnQHQz` (seeds `["escrow", pool]`, pool = `["pool", wSOL]`) for the placeholder program id `FtV5X43qGc37tjUkbzxoexyg1A4oFUv9wE42d3Ukhtc6`, recorded as `programId` in `proofs.json`. If the program id changes, update `lib/scenario.js` and run `npm run fixtures`.
 
 ## Production trusted setup (spec §11)
 

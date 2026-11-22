@@ -10,7 +10,7 @@ import {
   initPoseidon, poseidon, zeros, MerkleTree, mintField, extDataHash, extDataBytes, toBE32, toHex,
   encodePublicInputs, proofToHex, WSOL_MINT, USDC_MINT, USDT_MINT, P,
 } from '../lib/index.js';
-import { buildScenario, detField, detPubkey, detBlob } from '../lib/scenario.js';
+import { buildScenario, detField, detPubkey, detBlob, PROGRAM_ID, SOL_POOL_PDA, SOL_ESCROW_PDA } from '../lib/scenario.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(here, '..', 'fixtures');
@@ -135,7 +135,10 @@ if (!process.argv.includes('--no-proofs')) {
     });
   }
   write('proofs.json', {
-    note: NOTE + ' DEV zkey (UNSAFE). Proofs run in sequence on one SOL pool tree: leavesBefore is the tree state the proof uses (root = root of leavesBefore), leavesAfter adds the two output commitments. proofA is the NEGATED pi_a (x ++ (q - y)); proofB = x.c1 ++ x.c0 ++ y.c1 ++ y.c0; proofC = x ++ y. publicInputsHex are the 11 groth16-solana public inputs in §4 order. The swap recipient is a placeholder, not the real escrow PDA.',
+    note: NOTE + ' DEV zkey (UNSAFE). Proofs run in sequence on one SOL pool tree: leavesBefore is the tree state the proof uses (root = root of leavesBefore), leavesAfter adds the two output commitments. proofA is the NEGATED pi_a (x ++ (q - y)); proofB = x.c1 ++ x.c0 ++ y.c1 ++ y.c0; proofC = x ++ y. publicInputsHex are the 11 groth16-solana public inputs in §4 order. All four proofs use the SOL pool (native lamports), so recipient/relayer are system accounts (for SPL pools they would be the exact token accounts the program receives). The swap recipient is the SOL pool escrow PDA for programId.',
+    programId: PROGRAM_ID,
+    solPool: SOL_POOL_PDA,
+    solEscrow: SOL_ESCROW_PDA,
     zkey: 'assets/zk/transaction_final.zkey',
     verificationKeySha256: createHash('sha256').update(readFileSync(VK)).digest('hex'),
     proofs: out,
