@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Risks · DankSwap</title>
+  <meta name="theme-color" content="#08090a">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/site.css">
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <header class="wrap nav">
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#0b0d05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5h9.5L10 3"/><path d="M13 10.5H3.5L6 13"/></svg></span>
+      DankSwap
+    </a>
+    <a class="btn btn-primary" href="app.html">Launch app</a>
+  </header>
+  <main class="prose">
+    <h1>Risk disclosure</h1>
+    <p>Read this before you swap. Using DankSwap means you understand and accept these risks.</p>
+
+    <h2>What DankSwap is</h2>
+    <p>DankSwap is a website that helps you build swap transactions on Solana. Quotes, routing and transaction landing are provided by Jupiter (jup.ag). Your own wallet signs every transaction. DankSwap never holds your keys or funds and cannot reverse, cancel or refund a transaction.</p>
+
+    <h2>Today's swaps are not private</h2>
+    <p>The live app performs ordinary on-chain swaps. Your wallet address, the tokens and the amounts are public on the Solana blockchain, including when you use "Send to a different address". The shielded pool described on the home page is in development and not available.</p>
+
+    <h2>Market risk</h2>
+    <ul>
+      <li>Prices move. The amount you receive can differ from the estimate, down to the minimum shown before you sign. Below that, the transaction fails.</li>
+      <li>Large trades can move the price against you (price impact). The app warns above 1% and asks for extra confirmation above 5%.</li>
+      <li>Stablecoins can lose their peg. Their issuers can freeze tokens.</li>
+    </ul>
+
+    <h2>Technology risk</h2>
+    <ul>
+      <li>Smart contracts used for routing, including third-party DEXes, can contain bugs.</li>
+      <li>Solana can congest or halt, and transactions can fail or be delayed. Network fees for failed transactions are not refunded.</li>
+      <li>Wallet software, browser extensions and your device can be compromised. Only sign transactions you started on this site, and check the address bar says the official DankSwap domain.</li>
+      <li>Transfers to a wrong address cannot be recovered.</li>
+    </ul>
+
+    <h2>Fees</h2>
+    <p>Each quote shows the total fee for that trade. It includes Jupiter's routing fee for the pair and, if enabled, a DankSwap interface fee. Network fees are shown separately and are sometimes sponsored.</p>
+
+    <h2>Legal</h2>
+    <p>You are responsible for complying with the laws that apply to you, including tax. Do not use DankSwap if you are located in, or a resident of, a sanctioned jurisdiction, or if you are on a sanctions list. Nothing on this site is financial, investment, tax or legal advice.</p>
+  </main>
+  <footer class="footer"><div class="wrap"><p>DankSwap is a non-custodial interface. Not available where prohibited.</p></div></footer>
+</body>
+</html>

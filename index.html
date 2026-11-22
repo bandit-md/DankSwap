@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>DankSwap · Swap on Solana. Private routes coming.</title>
+  <meta name="description" content="Swap SOL, USDC and USDT on Solana at the best aggregated price. Non-custodial. A shielded pool with exits to eight chains is in development.">
+  <meta name="theme-color" content="#08090a">
+  <meta property="og:title" content="DankSwap">
+  <meta property="og:description" content="Swap SOL, USDC and USDT on Solana at the best aggregated price. Non-custodial.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/site.css">
+  <script type="module" src="assets/js/landing.js"></script>
+</head>
+<body>
+  <div class="hero">
+    <div class="grid-bg" aria-hidden="true"></div>
+    <header class="wrap nav">
+      <a class="brand" href="index.html" aria-label="DankSwap home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#0b0d05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5h9.5L10 3"/><path d="M13 10.5H3.5L6 13"/></svg></span>
+        DankSwap
+      </a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="#how">How it works</a>
+        <a href="#utility">Utility</a>
+        <a href="#fees">Fees</a>
+        <a href="#security">Security</a>
+        <a class="btn btn-primary" href="app.html">Launch app</a>
+      </nav>
+    </header>
+
+    <section class="wrap hero-inner">
+      <div>
+        <span class="tag tag-live">Solana swaps live</span>
+        <h1>Trade in private.<br>Settle anywhere.</h1>
+        <p class="lead">Swap SOL, USDC and USDT today at the best price across Solana. Next: a non-custodial shielded pool with exits to eight major chains.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary btn-lg" href="app.html">Launch app</a>
+          <a class="btn btn-lg" href="#how">See how it works</a>
+        </div>
+        <p class="hero-note">Non-custodial. Your wallet signs every trade.</p>
+      </div>
+      <div class="orbit" aria-hidden="true">
+        <svg viewBox="0 0 420 420">
+          <circle cx="210" cy="210" r="165" fill="none" stroke="#1c2022"/>
+          <circle cx="210" cy="210" r="105" fill="none" stroke="#2a3033" stroke-dasharray="2 6"/>
+          <circle cx="210" cy="210" r="64" fill="none" stroke="#c6ff4d" stroke-opacity=".35"/>
+          <circle cx="210" cy="210" r="56" fill="#0f1112" stroke="#2a3033"/>
+          <g fill="none" stroke="#f2f4f3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="196" y="207" width="28" height="22" rx="5"/>
+            <path d="M201 207v-6a9 9 0 0 1 18 0v6"/>
+          </g>
+          <g class="spin"><circle cx="210" cy="45" r="4" fill="#c6ff4d" transform="rotate(155 210 210)"/></g>
+          <g id="orbitNodes"></g>
+        </svg>
+      </div>
+    </section>
+  </div>
+
+  <main>
+    <section class="section" id="how">
+      <div class="wrap">
+        <span class="eyebrow">01 / How it works</span>
+        <h2>Four steps. One pool.</h2>
+        <p class="sub">Step two runs today as a regular non-custodial swap. The shielded steps ship after independent audits.</p>
+        <div class="steps">
+          <div class="step"><span class="num">01</span><h3>Shield <span class="tag">Phase 2</span></h3><p>Deposit SOL, USDC or USDT. You receive a private note only you can spend.</p></div>
+          <div class="step"><span class="num">02</span><h3>Swap <span class="tag tag-live">Live</span></h3><p>Trades route through aggregated Solana liquidity for the best price. Inside the pool, output is re-shielded.</p></div>
+          <div class="step"><span class="num">03</span><h3>Route <span class="tag">Phase 3</span></h3><p>Need another chain? A solver fills it from inventory. You never bridge.</p></div>
+          <div class="step"><span class="num">04</span><h3>Unshield <span class="tag">Phase 2</span></h3><p>Withdraw to a fresh address with a proof that hides which deposit you spent.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="utility">
+      <div class="wrap">
+        <span class="eyebrow">02 / Utility</span>
+        <h2>Everything you need.<br>Nothing you don't.</h2>
+        <div class="cards">
+          <div class="card span-2"><span class="tag tag-live">Live</span><h3>Best-price swaps</h3><p>SOL, USDC and USDT. Every quote races Jupiter's on-chain router against RFQ market makers and other aggregators, so you get the best fill. Many swaps are gasless.</p></div>
+          <div class="card"><span class="tag tag-live">Live</span><h3>Send on swap</h3><p>Swap and deliver straight to another wallet in one transaction.</p></div>
+          <div class="card"><span class="tag">Phase 2</span><h3>Private swap</h3><p>Trade with sender, receiver and amount unlinked on-chain.</p></div>
+          <div class="card"><span class="tag">Phase 2</span><h3>Gasless exits</h3><p>A relayer pays gas and takes its fee from the amount. No funded fresh wallet.</p></div>
+          <div class="card"><span class="tag">Phase 4</span><h3>Optional view keys</h3><p>Prove a transaction to an auditor with a read-only key, and nothing else.</p></div>
+          <div class="card span-2">
+            <span class="tag">Phase 3</span><h3>Eight chains</h3>
+            <p>Solver-filled exits from the Solana hub. No wrapped tokens.</p>
+            <div class="chips">
+              <span class="chip on">Solana</span><span class="chip">Ethereum</span><span class="chip">BNB Chain</span><span class="chip">Base</span><span class="chip">Arbitrum</span><span class="chip">Tron</span><span class="chip">Avalanche</span><span class="chip">Polygon</span>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Assets</h3><p>Launch set, chosen for deep liquidity.</p>
+            <div class="chips"><span class="chip on">SOL</span><span class="chip on">USDC</span><span class="chip on">USDT</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="fees">
+      <div class="wrap">
+        <span class="eyebrow">03 / Fees</span>
+        <h2>Flat. Simple. Shown before you sign.</h2>
+        <p class="sub">The app always shows the exact fee for your trade before you confirm. No token, no subscription.</p>
+        <div class="fees">
+          <div class="estimator">
+            <span class="eyebrow">Try it · private pool schedule</span>
+            <div class="seg" role="group" aria-label="Swap type">
+              <button type="button" data-kind="stable" aria-pressed="true">Stable to stable</button>
+              <button type="button" data-kind="swap" aria-pressed="false">Private swap</button>
+              <button type="button" data-kind="cross" aria-pressed="false">Cross-chain</button>
+            </div>
+            <div class="range-row"><label for="feeSize" class="muted">Swap size</label><span class="val" id="feeSizeVal">$5,000</span></div>
+            <input type="range" id="feeSize" min="50" max="100000" step="50" value="5000">
+            <div class="kv"><span id="feeLabel">Protocol fee (0.10%)</span><span class="v" id="feeProto">$5.00</span></div>
+            <div class="kv"><span>Exit via relayer (0.05%, min $0.25)</span><span class="v" id="feeRelay">$2.50</span></div>
+            <div class="kv total"><span>You receive</span><span class="v" id="feeNet">$4,992.50</span></div>
+            <p class="fine" id="feeNote">Estimate for the shielded pool (Phase 2). Excludes network and solver costs.</p>
+          </div>
+          <div>
+            <div class="fee-table">
+              <div class="fee-row"><div><b>Solana swap <span class="tag tag-live">Live</span></b><small>Jupiter routing fee by pair, plus the DankSwap fee if enabled. Exact total shown in the app.</small></div><span class="pct" id="liveFee">Per quote</span></div>
+              <div class="fee-row"><div><b>Shield (deposit)</b><small>Network fee only.</small></div><span class="pct">0%</span></div>
+              <div class="fee-row"><div><b>Private swap</b><small>SOL and volatile pairs.</small></div><span class="pct">0.30%</span></div>
+              <div class="fee-row"><div><b>Stable to stable</b><small>USDC and USDT, same chain.</small></div><span class="pct">0.10%</span></div>
+              <div class="fee-row"><div><b>Cross-chain route</b><small>Plus solver cost, quoted upfront.</small></div><span class="pct">0.40%</span></div>
+              <div class="fee-row"><div><b>Unshield via relayer</b><small>Covers gas. Minimum $0.25.</small></div><span class="pct">0.05%</span></div>
+            </div>
+            <p class="fine">Private pool fees are proposed and may change before launch. Split: 60% treasury, 25% relayers and solvers, 15% audit and bug-bounty reserve.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="security">
+      <div class="wrap">
+        <span class="eyebrow">04 / Security and stack</span>
+        <h2>One program. One relayer.<br>One static site.</h2>
+        <div class="cards">
+          <div class="card"><span class="tag tag-live">Live</span><h3>Non-custodial</h3><p>Your wallet signs each swap. DankSwap never holds keys or funds, and there is no account to create.</p></div>
+          <div class="card"><span class="tag tag-live">Live</span><h3>Minimum-out protection</h3><p>Every trade carries a slippage limit. If the price moves past it, the transaction fails and nothing moves.</p></div>
+          <div class="card"><span class="tag tag-live">Live</span><h3>Static frontend</h3><p>No servers, no tracking, no cookies. The site is plain files you can audit and self-host.</p></div>
+          <div class="card"><span class="tag">Before Phase 2</span><h3>Audited first</h3><p>The pool program and circuits ship only after independent audits, with the code open source.</p></div>
+          <div class="card"><span class="tag">Before Phase 2</span><h3>No admin key over funds</h3><p>Upgrades sit behind a timelocked multisig, then freeze.</p></div>
+          <div class="card"><span class="tag">Before Phase 2</span><h3>Compliance-aware</h3><p>Deposit screening against sanctions lists, plus optional view keys.</p></div>
+        </div>
+        <div class="chips">
+          <span class="chip on">Jupiter routing</span><span class="chip on">Wallet Standard</span><span class="chip on">Static frontend</span>
+          <span class="chip">Anchor program</span><span class="chip">Groth16 verifier</span><span class="chip">In-browser prover</span><span class="chip">Intent solvers</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="roadmap">
+      <div class="wrap">
+        <span class="eyebrow">05 / Roadmap</span>
+        <h2>Shipping in order.</h2>
+        <div class="roadmap">
+          <div class="phase now"><span class="tag tag-live">Phase 1 · Live</span><h3>Solana swaps</h3><p>SOL, USDC and USDT at the best aggregated price. Send on swap.</p></div>
+          <div class="phase"><span class="tag">Phase 2</span><h3>Private pool</h3><p>Audited shield, swap, unshield and relayer on Solana mainnet.</p></div>
+          <div class="phase"><span class="tag">Phase 3</span><h3>Seven chain routes</h3><p>Solver-filled exits to Ethereum, BNB, Base, Arbitrum, Tron, Avalanche and Polygon.</p></div>
+          <div class="phase"><span class="tag">Phase 4</span><h3>View keys and SDK</h3><p>Selective disclosure and a drop-in API for wallets.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-band">
+      <div class="wrap">
+        <h2>Your trades. Your business.</h2>
+        <a class="btn btn-primary btn-lg" href="app.html">Launch app</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <div class="row">
+        <a class="brand" href="index.html">
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#0b0d05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5h9.5L10 3"/><path d="M13 10.5H3.5L6 13"/></svg></span>
+          DankSwap
+        </a>
+        <div><a href="app.html">App</a><a href="risks.html">Risks</a></div>
+      </div>
+      <p>DankSwap is a non-custodial interface. Swaps are routed and executed by Jupiter on Solana; DankSwap never takes custody of funds. Phase 2–4 features are in development and not available. Crypto assets are volatile and transactions cannot be reversed. Not financial or legal advice. Not available where prohibited.</p>
+    </div>
+  </footer>
+</body>
+</html>

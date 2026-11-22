@@ -1,0 +1,12 @@
+{
+  "name": "dankswap",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Non-custodial swaps on Solana. Static site, no build step.",
+  "type": "module",
+  "scripts": {
+    "start": "node tests/serve.mjs 8080",
+    "test": "node --test tests/lib.test.mjs",
+    "e2e": "node tests/e2e.mjs"
+  }
+}
