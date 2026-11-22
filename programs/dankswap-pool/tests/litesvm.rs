@@ -235,7 +235,8 @@ fn ix_initialize(env: &Env, swap_program: &Address) -> Instruction {
 
 fn ix_initialize_pool(env: &Env, mint: &Address, max_deposit: u64) -> Instruction {
     let native = *mint == a(NATIVE_MINT);
-    let vault = if native { pool_pda(mint) } else { vault_pda(mint) };
+    let _ = native;
+    let vault = vault_pda(mint); // SOL: system-owned lamport vault; SPL: token account
     let mut data = disc("initialize_pool").to_vec();
     data.extend_from_slice(&max_deposit.to_le_bytes());
     Instruction {
@@ -308,7 +309,7 @@ fn ix_transact_sol(signer: &Address, c: &ProofCase, recipient: &Address, relayer
             AccountMeta::new_readonly(config_pda(), false),
             AccountMeta::new_readonly(pool, false),
             AccountMeta::new(tree_pda(&mint), false),
-            AccountMeta::new(pool, false), // vault = pool PDA for native SOL
+            AccountMeta::new(vault_pda(&mint), false), // native SOL vault PDA
             AccountMeta::new(nullifier_pda(&c.nullifiers[0]), false),
             AccountMeta::new(nullifier_pda(&c.nullifiers[1]), false),
             AccountMeta::new(*recipient, false),
@@ -353,6 +354,11 @@ fn initialize_and_pool_init() {
     init_sol_pool(&mut env);
     let sol_pool = pool_pda(&a(NATIVE_MINT));
     assert!(env.svm.get_account(&sol_pool).is_some());
+    // Native SOL vault: data-less, system-owned, rent-exempt PDA ["vault", wSOL].
+    let sol_vault = env.svm.get_account(&vault_pda(&a(NATIVE_MINT))).expect("sol vault");
+    assert_eq!(sol_vault.owner, a(SYSTEM_PROGRAM));
+    assert!(sol_vault.data.is_empty());
+    assert!(sol_vault.lamports >= env.svm.minimum_balance_for_rent_exemption(0));
     let tree = env.svm.get_account(&tree_pda(&a(NATIVE_MINT))).unwrap();
     assert_eq!(tree.data.len(), 8 + 3856);
     // roots[0] = empty root = zeros[20]
@@ -388,7 +394,7 @@ fn fixture_sequence_deposit_transfer_withdraw_swap() {
     let mint = a(NATIVE_MINT);
     let pool = pool_pda(&mint);
     let payer = env.payer.pubkey();
-    let pool_start = lamports(&env.svm, &pool);
+    let pool_start = lamports(&env.svm, &vault_pda(&a(NATIVE_MINT)));
 
     // --- deposit (1 SOL) ---
     let dep = case(&cases, "deposit");
@@ -397,7 +403,7 @@ fn fixture_sequence_deposit_transfer_withdraw_swap() {
     let payer_before = lamports(&env.svm, &payer);
     let cu = send(&mut env, vec![ix_transact_sol(&payer, dep, &r, &rl)], &[]).expect("deposit");
     println!("transact deposit CU: {cu}");
-    assert_eq!(lamports(&env.svm, &pool), pool_start + dep.ext_amount as u64);
+    assert_eq!(lamports(&env.svm, &vault_pda(&a(NATIVE_MINT))), pool_start + dep.ext_amount as u64);
     assert!(payer_before - lamports(&env.svm, &payer) >= dep.ext_amount as u64);
     assert!(env.svm.get_account(&nullifier_pda(&dep.nullifiers[0])).is_some());
 
@@ -429,13 +435,13 @@ fn fixture_sequence_deposit_transfer_withdraw_swap() {
     // Tampered recipient => extDataHash mismatch => proof rejected.
     let wrong = Keypair::new().pubkey();
     expect_err(send(&mut env, vec![ix_transact_sol(&payer, wd, &wrong, &rl)], &[]), "Custom(6005)");
-    let (r_before, rl_before, pool_before) = (lamports(&env.svm, &r), lamports(&env.svm, &rl), lamports(&env.svm, &pool));
+    let (r_before, rl_before, pool_before) = (lamports(&env.svm, &r), lamports(&env.svm, &rl), lamports(&env.svm, &vault_pda(&a(NATIVE_MINT))));
     let cu = send(&mut env, vec![ix_transact_sol(&payer, wd, &r, &rl)], &[]).expect("withdraw while paused");
     println!("transact withdraw CU: {cu}");
     let out = wd.ext_amount.unsigned_abs();
     assert_eq!(lamports(&env.svm, &r), r_before + out);
     assert_eq!(lamports(&env.svm, &rl), rl_before + wd.fee);
-    assert_eq!(lamports(&env.svm, &pool), pool_before - out - wd.fee);
+    assert_eq!(lamports(&env.svm, &vault_pda(&a(NATIVE_MINT))), pool_before - out - wd.fee);
     send(&mut env, vec![ix_set_paused(&admin.pubkey(), false)], &[&admin]).expect("unpause");
 
     // --- deposit limit ---
@@ -487,7 +493,7 @@ fn fixture_sequence_deposit_transfer_withdraw_swap() {
                 AccountMeta::new_readonly(config_pda(), false),
                 AccountMeta::new_readonly(pool, false),
                 AccountMeta::new(tree_pda(&mint), false),
-                AccountMeta::new(pool, false), // input vault (native)
+                AccountMeta::new(vault_pda(&mint), false), // input vault (native SOL)
                 AccountMeta::new(nullifier_pda(&sw.nullifiers[0]), false),
                 AccountMeta::new(nullifier_pda(&sw.nullifiers[1]), false),
                 AccountMeta::new(relayer, false), // relayer_fee_account (SOL)
@@ -520,10 +526,10 @@ fn fixture_sequence_deposit_transfer_withdraw_swap() {
     short.extend_from_slice(&(sw.swap_amount - 1).to_le_bytes());
     expect_err(send(&mut env, vec![build_swap_ix(short)], &[]), "Custom(6020)");
 
-    let (pool_before, rl_before) = (lamports(&env.svm, &pool), lamports(&env.svm, &relayer));
+    let (pool_before, rl_before) = (lamports(&env.svm, &vault_pda(&a(NATIVE_MINT))), lamports(&env.svm, &relayer));
     let cu = send(&mut env, vec![build_swap_ix(swap_data)], &[]).expect("transact_swap");
     println!("transact_swap (SOL->USDC, mock) CU: {cu}");
-    assert_eq!(lamports(&env.svm, &pool), pool_before - amount_in - sw.fee);
+    assert_eq!(lamports(&env.svm, &vault_pda(&a(NATIVE_MINT))), pool_before - amount_in - sw.fee);
     assert_eq!(lamports(&env.svm, &relayer), rl_before + sw.fee);
     assert_eq!(token_amount(&env.svm, &vault_pda(&usdc)), sw.swap_amount);
     assert_eq!(token_amount(&env.svm, &surplus), 1_000_000);
@@ -539,7 +545,7 @@ fn fixture_sequence_deposit_transfer_withdraw_swap() {
 
     // Pool accounting: everything that left is accounted for.
     assert_eq!(
-        lamports(&env.svm, &pool),
+        lamports(&env.svm, &vault_pda(&a(NATIVE_MINT))),
         pool_start + dep.ext_amount as u64 - tr.fee - wd.ext_amount.unsigned_abs() - wd.fee - amount_in - sw.fee
     );
 }

@@ -35,9 +35,10 @@ export function vaultPda(web3, programId, mint) {
   return pda(web3, [utf8('vault'), pubkeyBytes(mint)], programId);
 }
 
-/** The pool's vault: the pool PDA itself for native SOL, else the token account PDA ["vault", mint] (programs/dankswap-pool/src/state.rs). */
+/** The pool's vault PDA ["vault", mint]: a system-owned lamport account for native SOL, an SPL token account owned by the pool PDA otherwise. */
+// eslint-disable-next-line no-unused-vars
 export function vaultAddress(web3, programId, mint, native) {
-  return native ? poolPda(web3, programId, mint) : vaultPda(web3, programId, mint);
+  return vaultPda(web3, programId, mint);
 }
 
 /**

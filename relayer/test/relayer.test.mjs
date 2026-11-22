@@ -16,7 +16,7 @@ import { MerkleTree } from '../../assets/js/pool/merkle.js';
 import {
   eventDiscriminator, relayRequestBody, transactInstructionData, decodeTransactArgs, argsFromRelay, parseRelayRequest,
 } from '../../assets/js/pool/encode.js';
-import { associatedTokenAddress, poolPda, nullifierPda, ASSOCIATED_TOKEN_PROGRAM_ID } from '../../assets/js/pool/accounts.js';
+import { associatedTokenAddress, poolPda, vaultPda, nullifierPda, ASSOCIATED_TOKEN_PROGRAM_ID } from '../../assets/js/pool/accounts.js';
 import { concatBytes, fieldToBytes, u64LE, pubkeyBytes, bytesToHex } from '../../assets/js/pool/util.js';
 import { SANCTIONED_ADDRESSES } from '../../assets/js/pool/sanctions.js';
 
@@ -218,7 +218,7 @@ test('relay: SOL unshield is rebuilt exactly, simulated, signed and sent', async
   const accts = ix.accountKeyIndexes.map((i) => keys[i]);
   assert.equal(accts[0], r.address);
   assert.equal(accts[2], poolPda(web3, PROGRAM_ID, WSOL).toBase58());
-  assert.equal(accts[4], poolPda(web3, PROGRAM_ID, WSOL).toBase58()); // SOL vault = pool PDA
+  assert.equal(accts[4], vaultPda(web3, PROGRAM_ID, WSOL).toBase58()); // SOL vault PDA ["vault", wSOL]
   assert.equal(accts[5], nullifierPda(web3, PROGRAM_ID, b(32, 5)).toBase58());
   assert.equal(accts[7], recipient);
   assert.equal(accts[8], r.address);

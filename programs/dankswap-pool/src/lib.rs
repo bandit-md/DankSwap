@@ -64,9 +64,17 @@ pub mod dankswap_pool {
         let is_native = mint_key == NATIVE_MINT;
 
         let vault_key = if is_native {
-            // The pool PDA itself holds the lamports.
-            require_keys_eq!(ctx.accounts.vault.key(), pool_key, PoolError::InvalidVault);
-            pool_key
+            // Native SOL lives in a data-less, system-owned PDA ["vault", wSOL mint],
+            // so every SOL movement is a signed System Program transfer (direct
+            // lamport edits followed by CPIs are rejected by the runtime).
+            create_native_vault(
+                &ctx.accounts.authority.to_account_info(),
+                &ctx.accounts.vault.to_account_info(),
+                &mint_key,
+                &ctx.accounts.system_program.to_account_info(),
+                ctx.program_id,
+            )?;
+            ctx.accounts.vault.key()
         } else {
             let mint_ai = ctx.accounts.mint.to_account_info();
             require_keys_eq!(*mint_ai.owner, spl_token::ID, PoolError::InvalidMint);
@@ -211,6 +219,7 @@ pub mod dankswap_pool {
                     &pool_ai,
                     &a.recipient.to_account_info(),
                     &token_program,
+                    &a.system_program.to_account_info(),
                     pool_seeds,
                     amount,
                     PoolError::InvalidRecipient,
@@ -229,6 +238,7 @@ pub mod dankswap_pool {
                 &pool_ai,
                 &a.relayer_fee_account.to_account_info(),
                 &token_program,
+                &a.system_program.to_account_info(),
                 pool_seeds,
                 fee,
                 PoolError::InvalidRelayerAccount,
@@ -438,24 +448,64 @@ fn token_transfer<'info>(
     Ok(())
 }
 
-/// Debit lamports from a program-owned account, never below rent exemption.
-fn lamports_out(from: &AccountInfo, to: &AccountInfo, amount: u64) -> Result<()> {
+/// Create (or adopt a pre-funded) native SOL vault: a system-owned PDA
+/// ["vault", wSOL mint] with no data, kept at least rent-exempt.
+#[inline(never)]
+fn create_native_vault<'info>(
+    payer: &AccountInfo<'info>,
+    vault: &AccountInfo<'info>,
+    mint_key: &Pubkey,
+    system_program: &AccountInfo<'info>,
+    program_id: &Pubkey,
+) -> Result<()> {
+    let (expected, _) = Pubkey::find_program_address(&[VAULT_SEED, mint_key.as_ref()], program_id);
+    require_keys_eq!(vault.key(), expected, PoolError::InvalidVault);
+    require_keys_eq!(*vault.owner, anchor_lang::system_program::ID, PoolError::InvalidVault);
+    require!(vault.data_is_empty(), PoolError::InvalidVault);
+    let rent_min = Rent::get()?.minimum_balance(0);
+    let top_up = rent_min.saturating_sub(vault.lamports());
+    if top_up > 0 {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                system_program.key(),
+                anchor_lang::system_program::Transfer { from: payer.clone(), to: vault.clone() },
+            ),
+            top_up,
+        )?;
+    }
+    Ok(())
+}
+
+/// Pay lamports out of the native SOL vault with a signed System transfer,
+/// never leaving the vault below rent exemption.
+fn native_vault_transfer<'info>(
+    vault: &AccountInfo<'info>,
+    dest: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
+    mint: &Pubkey,
+    amount: u64,
+) -> Result<()> {
     if amount == 0 {
         return Ok(());
     }
-    let rent_min = Rent::get()?.minimum_balance(from.data_len());
-    let after = from
+    let (expected, bump) = Pubkey::find_program_address(&[VAULT_SEED, mint.as_ref()], &crate::ID);
+    require_keys_eq!(vault.key(), expected, PoolError::InvalidVault);
+    let rent_min = Rent::get()?.minimum_balance(0);
+    let after = vault
         .lamports()
         .checked_sub(amount)
         .ok_or(error!(PoolError::InsufficientPoolBalance))?;
     require!(after >= rent_min, PoolError::InsufficientPoolBalance);
-    let to_after = to
-        .lamports()
-        .checked_add(amount)
-        .ok_or(error!(PoolError::MathOverflow))?;
-    **from.try_borrow_mut_lamports()? = after;
-    **to.try_borrow_mut_lamports()? = to_after;
-    Ok(())
+    let bump = [bump];
+    let seeds: &[&[u8]] = &[VAULT_SEED, mint.as_ref(), &bump];
+    anchor_lang::system_program::transfer(
+        CpiContext::new_with_signer(
+            system_program.key(),
+            anchor_lang::system_program::Transfer { from: vault.clone(), to: dest.clone() },
+            &[seeds],
+        ),
+        amount,
+    )
 }
 
 /// Pay `amount` out of a pool's vault to `dest` (lamports for the native pool,
@@ -467,6 +517,7 @@ fn pay_out<'info>(
     pool_ai: &AccountInfo<'info>,
     dest: &AccountInfo<'info>,
     token_program: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
     pool_seeds: &[&[u8]],
     amount: u64,
     dest_err: PoolError,
@@ -475,7 +526,7 @@ fn pay_out<'info>(
         return Ok(());
     }
     if pool.is_native {
-        lamports_out(vault, dest, amount)
+        native_vault_transfer(vault, dest, system_program, &pool.mint, amount)
     } else {
         let acc = read_token_account(dest, dest_err)?;
         if acc.mint != pool.mint {
@@ -531,22 +582,23 @@ fn swap_move_and_settle<'info>(
     let escrow_bump = [ctx.bumps.escrow];
     let escrow_seeds: &[&[u8]] = &[ESCROW_SEED, input_pool_key.as_ref(), &escrow_bump];
 
-    // Direct lamport moves (native pool) must not be followed by a CPI that sees
-    // only one side of the move: the runtime would reject it as unbalanced. So
-    // the native wrap passes both accounts to the SyncNative CPI, and the relayer
-    // fee is paid last (step 5), after every CPI.
+    // All SOL movements are signed System transfers out of the native vault PDA
+    // (no direct lamport edits), so they compose safely with the swap CPI.
 
     // 1. Outflow into the escrow input token account.
     let pre_in = a.escrow_input_token.amount;
     let pre_out = a.escrow_output_token.amount;
     if input_pool.is_native {
         // Wrap: lamports into the escrow's wSOL account, then SyncNative.
-        lamports_out(&input_vault, &escrow_in_ai, amount_in)?;
-        let mut ix = spl_token::instruction::sync_native(&spl_token::ID, escrow_in_ai.key)?;
-        // SyncNative reads only its first account; the vault is listed so this
-        // CPI sees both sides of the lamport move above.
-        ix.accounts.push(AccountMeta::new(*input_vault.key, false));
-        invoke(&ix, &[escrow_in_ai.clone(), input_vault.clone(), token_program.clone()])?;
+        native_vault_transfer(
+            &input_vault,
+            &escrow_in_ai,
+            &a.system_program.to_account_info(),
+            &input_pool.mint,
+            amount_in,
+        )?;
+        let ix = spl_token::instruction::sync_native(&spl_token::ID, escrow_in_ai.key)?;
+        invoke(&ix, &[escrow_in_ai.clone(), token_program.clone()])?;
     } else {
         token_transfer(
             &input_vault,
@@ -661,7 +713,7 @@ fn swap_move_and_settle<'info>(
         }
     }
 
-    // 5. Relayer fee in the input mint, after every CPI (see note above).
+    // 5. Relayer fee in the input mint.
     if fee > 0 {
         require_keys_neq!(
             a.relayer_fee_account.key(),
@@ -674,6 +726,7 @@ fn swap_move_and_settle<'info>(
             &input_pool_ai,
             &a.relayer_fee_account.to_account_info(),
             &token_program,
+            &a.system_program.to_account_info(),
             input_seeds,
             fee,
             PoolError::InvalidRelayerAccount,
@@ -711,7 +764,8 @@ pub struct InitializePool<'info> {
     pub pool: Account<'info, Pool>,
     #[account(init, payer = authority, space = 8 + MerkleTree::SIZE, seeds = [TREE_SEED, mint.key().as_ref()], bump)]
     pub tree: AccountLoader<'info, MerkleTree>,
-    /// CHECK: native pool: must be the pool PDA. SPL: PDA ["vault", mint], created here.
+    /// CHECK: PDA ["vault", mint], created here: a system-owned lamport vault for
+    /// native SOL, an SPL token account owned by the pool PDA otherwise.
     #[account(mut)]
     pub vault: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,

@@ -37,7 +37,7 @@ with no known keypair. To use a real program keypair:
 | pool | `["pool", mint]` | `Pool { mint: Pubkey, mint_field: [u8;32], is_native: bool, max_deposit: u64, vault: Pubkey, tree: Pubkey, bump: u8 }`, 8 + 138 bytes |
 | tree | `["tree", mint]` | zero-copy `MerkleTree { filled_subtrees: [[u8;32];20], roots: [[u8;32];100], current_root_index: u64, next_index: u64 }`, 8 + 3856 bytes |
 | vault (SPL) | `["vault", mint]` | SPL token account; mint = pool mint, owner (authority) = pool PDA |
-| vault (native SOL) | — | the **pool PDA itself**; it holds lamports above its rent-exempt minimum |
+| vault (native SOL) | `["vault", wSOL mint]` | data-less **system-owned** PDA holding the pool's lamports; kept rent-exempt. All SOL moves are signed System transfers (no direct lamport edits, which the runtime rejects when a CPI follows) |
 | nullifier | `["nullifier", nullifier32]` | empty marker (8-byte discriminator). If it exists, the note is spent. Global, not per pool |
 | escrow | `["escrow", input_pool]` | system account with no data. It signs the swap CPI and owns the escrow token accounts |
 
@@ -82,7 +82,7 @@ Creates the pool, the tree (filled_subtrees = zeros, roots[0] = zeros[20]) and, 
 | 2 | mint (wSOL mint for the SOL pool; it does not need to exist) | |
 | 3 | pool PDA `["pool", mint]` | w |
 | 4 | tree PDA `["tree", mint]` | w |
-| 5 | vault: SPL → PDA `["vault", mint]`; native SOL → the pool PDA again | w |
+| 5 | vault: PDA `["vault", mint]` (SPL token account, or system-owned lamport vault for native SOL) | w |
 | 6 | token program | |
 | 7 | system program | |
 
@@ -132,7 +132,7 @@ Total data = 8 + 64 + 128 + 64 + 32 + 64 + 64 + 8 + 8 + 87 + 87 = **614 bytes**.
 | 1 | config | | |
 | 2 | pool | | |
 | 3 | tree (= pool.tree) | w | |
-| 4 | vault (= pool.vault; the pool PDA for SOL) | w | |
+| 4 | vault (= pool.vault, PDA `["vault", mint]`) | w | |
 | 5 | nullifier0 PDA `["nullifier", input_nullifiers[0]]` | w | created with `init` |
 | 6 | nullifier1 PDA `["nullifier", input_nullifiers[1]]` | w | created with `init` |
 | 7 | recipient | w | see below |
@@ -160,7 +160,7 @@ Rules:
   `fee == 0`. Funds come from the signer: a system transfer for SOL, or an SPL `Transfer` from
   `signer_token_account` (signer = owner) for SPL pools.
 - `ext_amount < 0`: `-ext_amount` goes to the recipient. `fee > 0` goes to `relayer_fee_account`. Both
-  come from the vault. The SOL pool PDA is debited directly and never goes below its rent-exempt
+  come from the vault. The SOL vault PDA pays out by signed System transfer and never goes below its rent-exempt
   minimum. A brand-new SOL recipient must receive at least the rent-exempt minimum for 0 bytes
   (890,880 lamports), or the runtime rejects the transaction.
 - `publicAmount = (ext_amount − fee) mod p` (32-byte BE, `p − |x|` when negative). `mintField = pool.mint_field`.
