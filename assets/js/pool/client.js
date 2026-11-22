@@ -277,7 +277,7 @@ export class PoolClient {
       tree: st.tree, mintField: mintField(t.mint), inputs: [], outputs: [out],
       extData: { recipient: counterparty, relayer: counterparty, extAmount: amt, fee: 0n },
     });
-    const { args, ms } = await this._prove(tx, onProgress);
+    const { args, ms, proof } = await this._prove(tx, onProgress);
     const ix = await transactInstruction(web3, {
       programId: this.config.POOL_PROGRAM_ID, mint: t.mint, native, signer: owner,
       nullifiers: args.inputNullifiers, recipient: counterparty, relayerFeeAccount: counterparty,
@@ -290,7 +290,7 @@ export class PoolClient {
       instructions: [computeUnitLimitInstruction(web3, this.config.COMPUTE_UNITS), ix],
     }).compileToV0Message();
     const bytes = new web3.VersionedTransaction(message).serialize();
-    return { bytes, tx, args, proveMs: ms, lastValidBlockHeight: bh.value.lastValidBlockHeight };
+    return { bytes, tx, args, proof, proveMs: ms, lastValidBlockHeight: bh.value.lastValidBlockHeight };
   }
 
   /** Send a wallet-signed transaction (base64) after a preflight simulation; returns the signature. */

@@ -234,34 +234,57 @@ test('note hashes agree with circuits/lib/note.js', async () => {
 
 /* ---------- §7 proof encoding, §8 instruction data ---------- */
 
-function findProofFixtures() {
-  if (!existsSync(FIX)) return [];
-  const out = [];
-  for (const f of readdirSync(FIX).filter((x) => x.endsWith('.json'))) {
-    const j = JSON.parse(readFileSync(join(FIX, f), 'utf8'));
-    const walk = (o, path) => {
-      if (!o || typeof o !== 'object') return;
-      if (o.proof && o.proof.pi_a && Array.isArray(o.publicSignals)) out.push({ file: f, path, ...o });
-      for (const [k, v] of Object.entries(o)) if (v && typeof v === 'object' && k !== 'proof') walk(v, `${path}.${k}`);
-    };
-    walk(j, '');
-  }
-  return out;
-}
-
-test('proof encoding matches circuits/lib/encode.js and fixture bytes', async () => {
-  const proofs = findProofFixtures();
-  if (!proofs.length) assert.fail('fixtures missing: no circuits/fixtures/*.json with { proof, publicSignals } yet');
+test('proofs.json: proof bytes, public inputs, extDataHash, roots, PDAs match; proofs verify', { timeout: 120_000 }, async () => {
+  const f = fixture('proofs.json');
+  const web3 = loadWeb3();
+  assert.equal(f.programId, POOL_CONFIG.POOL_PROGRAM_ID);
+  assert.equal(A.poolPda(web3, f.programId, WSOL).toBase58(), f.solPool);
+  assert.equal(A.escrowPda(web3, f.programId, f.solPool).toBase58(), f.solEscrow);
   const L = await circuitsLib('encode.js');
-  for (const p of proofs) {
-    const mine = encodeProof(p.proof);
-    const theirs = L.encodeProof(p.proof);
-    for (const k of ['proofA', 'proofB', 'proofC']) assert.equal(U.bytesToHex(mine[k]), U.bytesToHex(theirs[k]), `${p.file}${p.path} ${k}`);
-    const hexes = p.encoded || p.bytes || p.proofHex;
-    if (hexes) for (const k of ['proofA', 'proofB', 'proofC']) if (hexes[k]) assert.equal(U.bytesToHex(mine[k]), hexes[k].replace(/^0x/, ''));
-    const pub = encodePublicSignals(p.publicSignals);
-    assert.equal(pub.length, 11);
-    assert.deepEqual(pub.map(U.bytesToHex), L.encodePublicInputs(p.publicSignals).map(U.bytesToHex));
+  const snarkjs = await snarkjsModule();
+  const vkPath = join(ROOT, 'assets', 'zk', 'verification_key.json');
+  const vk = existsSync(vkPath) ? JSON.parse(readFileSync(vkPath, 'utf8')) : null;
+  if (vk && f.verificationKeySha256) assert.equal(U.bytesToHex(await U.sha256(readFileSync(vkPath))), f.verificationKeySha256);
+  assert.ok(f.proofs.length >= 4);
+  for (const p of f.proofs) {
+    const enc = encodeProof(p.snarkjsProof);
+    assert.equal(U.bytesToHex(enc.proofA), p.proofA.replace(/^0x/, ''), `${p.name} proofA`);
+    assert.equal(U.bytesToHex(enc.proofB), p.proofB.replace(/^0x/, ''), `${p.name} proofB`);
+    assert.equal(U.bytesToHex(enc.proofC), p.proofC.replace(/^0x/, ''), `${p.name} proofC`);
+    if (L) assert.equal(U.bytesToHex(enc.proofA), U.bytesToHex(L.encodeProof(p.snarkjsProof).proofA));
+    assert.deepEqual(encodePublicSignals(p.publicSignals).map(U.bytesToHex), p.publicInputsHex.map((h) => h.replace(/^0x/, '')), `${p.name} public inputs`);
+    const e = p.extData;
+    const ext = {
+      recipient: e.recipient, relayer: e.relayer, extAmount: BigInt(e.extAmount), fee: BigInt(e.fee),
+      encryptedOutput1: U.hexToBytes(e.encryptedOutput1), encryptedOutput2: U.hexToBytes(e.encryptedOutput2),
+      encryptedSwapOutput: e.encryptedSwapOutput ? U.hexToBytes(e.encryptedSwapOutput) : undefined,
+    };
+    const edh = await extDataHash(ext);
+    assert.equal(edh.toString(), p.extDataHash, `${p.name} extDataHash`);
+    assert.equal(p.publicSignals[2], p.extDataHash);
+    assert.equal(publicAmount(ext.extAmount, ext.fee).toString(), p.publicAmount);
+    assert.equal(p.publicSignals[1], p.publicAmount);
+    assert.equal(mintField(p.mint).toString(), p.publicSignals[3]);
+    const before = new MerkleTree(20, p.leavesBefore.map(BigInt));
+    assert.equal(before.root().toString(), p.root, `${p.name} root`);
+    assert.equal(p.publicSignals[0], p.root);
+    const after = new MerkleTree(20, p.leavesAfter.map(BigInt));
+    assert.equal(after.nextIndex, before.nextIndex + 2);
+    assert.deepEqual(p.leavesAfter.slice(-2), [p.publicSignals[6], p.publicSignals[7]]);
+    if (p.flow === 'swap') {
+      assert.equal(e.recipient, f.solEscrow);
+      assert.equal(p.publicSignals[8], mintField(p.swapMint).toString());
+    }
+    // Instruction data round-trip from the fixture's bytes
+    const args = {
+      ...enc, root: U.fieldToBytes(BigInt(p.root)),
+      inputNullifiers: p.inputNullifiersHex.map(U.hexToBytes), outputCommitments: p.outputCommitmentsHex.map(U.hexToBytes),
+      extAmount: ext.extAmount, fee: ext.fee, encryptedOutput1: ext.encryptedOutput1, encryptedOutput2: ext.encryptedOutput2,
+    };
+    const data = await transactInstructionData(args);
+    assert.equal(data.length, 614);
+    assert.deepEqual(U.bytesToHex(data.slice(8 + 256, 8 + 288)), p.rootHex.replace(/^0x/, ''));
+    if (vk && snarkjs) assert.ok(await snarkjs.groth16.verify(vk, p.publicSignals, p.snarkjsProof), `${p.name} verifies`);
   }
 });
 
@@ -457,11 +480,11 @@ test('client shield → scan → unshield against mocked relayer/RPC (real Groth
   assert.equal(dec.extAmount, 1_000_000_000n);
   assert.equal(dec.fee, 0n);
   // verify the proof with the verification key, from the encoded public inputs
-  const vkPath = join(ROOT, 'circuits', 'build', 'verification_key.json');
+  const vkPath = join(ROOT, 'assets', 'zk', 'verification_key.json');
   if (existsSync(vkPath)) {
     const vk = JSON.parse(readFileSync(vkPath, 'utf8'));
     const pub = shield.tx.publicSignals;
-    assert.ok(await snarkjs.groth16.verify(vk, pub, (await prover.prove(shield.tx.input)).proof));
+    assert.ok(await snarkjs.groth16.verify(vk, pub, shield.proof));
   }
   console.log(`# node proving time (shield, in-process): ${proveMs} ms`);
 
