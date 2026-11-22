@@ -4,6 +4,28 @@ Swap SOL, USDC and USDT on Solana at the best aggregated price. Non-custodial: t
 
 This is Phase 1 from the project outline: a working swap app for real users on Solana mainnet. The shielded pool (Phase 2), cross-chain exits (Phase 3) and view keys (Phase 4) are shown on the landing page as roadmap items and are not live.
 
+## Phase 2: private pool (devnet preview)
+
+`private.html` is a shielded pool for SOL, USDC and USDT. **Unaudited, devnet only: do not use real funds.**
+
+- **Shield:** deposit and get a private note.
+- **Send privately:** pay another user's `dank…` address.
+- **Unshield:** withdraw to any Solana address. A relayer pays gas and takes a fee from the amount.
+- **Private swap:** swap inside the pool. The program side is verified on a real SVM; the Jupiter route integration is in progress.
+
+| Part | Where | Docs |
+|---|---|---|
+| Spec (encodings, flows) | `docs/PHASE2_SPEC.md` | |
+| ZK circuit (Circom, Groth16) | `circuits/` | `circuits/README.md` |
+| Solana program (Anchor) | `programs/` | `programs/README.md` |
+| Relayer and index (Node) | `relayer/` | `relayer/README.md` |
+| Browser SDK and prover | `assets/js/pool/`, `assets/zk/` | |
+| Internal review and open gaps | `docs/PHASE2_AUDIT.md` | |
+
+Mainnet requires independent audits, a public trusted-setup ceremony and the critical items in `docs/PHASE2_AUDIT.md`.
+
+`npm run test:all` runs every suite (site, SDK, circuits, relayer, program host tests, browser tests). CI runs the same suites, plus the program's SBF build and on-chain tests (`.github/workflows/`).
+
 ## What's in it
 
 | Path | What it is |

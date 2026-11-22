@@ -18,9 +18,20 @@ Nice to have:
 - [ ] Status monitoring on the domain and on Jupiter's status page.
 - [ ] Support channel linked in the footer (Discord, Telegram or email).
 
-## Phase 2: private pool (not started in this repo)
+## Phase 2: private pool (devnet preview built)
 
-Needs, in order: circuit design (note tiers, Merkle depth, nullifiers), Anchor program with Groth16 verifier, relayer, in-browser prover, two independent audits of program and circuits, timelocked multisig upgrade authority, sanctions screening on deposits, and legal review specific to privacy tooling. None of this should face retail users before the audits.
+Devnet:
+- [ ] Generate the program keypair, set its address in `declare_id!` and `Anchor.toml`, regenerate the circuit fixtures (`cd circuits && npm run fixtures`), and run the CI deploy job (secrets `DEVNET_DEPLOYER_KEYPAIR`, `DEVNET_PROGRAM_KEYPAIR`).
+- [ ] Run `initialize` and `initialize_pool` for SOL and a devnet USDC mint. Set `POOL_PROGRAM_ID` and the mints in `assets/js/pool/config.js`.
+- [ ] Deploy the relayer (`relayer/README.md`), fund it with devnet SOL, create its lookup table and its fee token accounts, and set `RELAYER_URL`.
+
+Before mainnet (see `docs/PHASE2_AUDIT.md`):
+- [ ] Public multi-party trusted setup.
+- [ ] Two independent audits of circuits and program, plus a review of the SDK and relayer.
+- [ ] Put the official domain in the unlock message (phishing protection) before any real deposit.
+- [ ] Self-relay fallback and a second relayer.
+- [ ] Move the upgrade authority to a timelocked multisig, then freeze it.
+- [ ] Legal review specific to privacy tooling; production sanctions screening.
 
 ## Phase 3: cross-chain exits
 
