@@ -360,9 +360,9 @@ export class PoolClient {
       tree: st.tree, mintField: mintField(t.mint), inputs: ins, outputs,
       extData: { recipient: q.recipient, relayer: this._relayerFeeAccount(q.info, t), extAmount: -amt, fee: q.fee },
     });
-    const { args, ms } = await this._prove(tx, onProgress);
+    const { args, ms, proof } = await this._prove(tx, onProgress);
     const body = relayRequestBody({ instruction: 'transact', pool: t.mint, args, extData: tx.extData, recipientOwner: t.native ? undefined : recipientWallet });
-    return { body, fee: q.fee, needsAta: q.needsAta, inputs: ins, tx, proveMs: ms };
+    return { body, fee: q.fee, needsAta: q.needsAta, inputs: ins, tx, proof, proveMs: ms };
   }
 
   /** Private send to a dank… address. The recipient sees the note; nobody else sees the amount. */
@@ -388,9 +388,9 @@ export class PoolClient {
       tree: st.tree, mintField: mintField(t.mint), inputs: ins, outputs,
       extData: { recipient: feeAccount, relayer: feeAccount, extAmount: 0n, fee },
     });
-    const { args, ms } = await this._prove(tx, onProgress);
+    const { args, ms, proof } = await this._prove(tx, onProgress);
     const body = relayRequestBody({ instruction: 'transact', pool: t.mint, args, extData: tx.extData });
-    return { body, fee, inputs: ins, tx, proveMs: ms };
+    return { body, fee, inputs: ins, tx, proof, proveMs: ms };
   }
 
   /** POST /relay. On success the spent inputs are hidden until the next sync confirms them. */

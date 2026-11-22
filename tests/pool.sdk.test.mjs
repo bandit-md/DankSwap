@@ -1,7 +1,7 @@
 // Private pool browser SDK (assets/js/pool/) checked against the circuit agent's fixtures in
 // circuits/fixtures/ and helpers in circuits/lib/. Run: node --test tests/pool.sdk.test.mjs
 // Uses @solana/web3.js from relayer/node_modules (cd relayer && npm install) for PDA/transaction checks.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -30,6 +30,11 @@ import * as A from '../assets/js/pool/accounts.js';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const FIX = join(ROOT, 'circuits', 'fixtures');
 const require = createRequire(import.meta.url);
+
+// snarkjs caches a bn128 curve with worker threads in Node; terminate it so the run exits.
+after(async () => {
+  if (globalThis.curve_bn128) await globalThis.curve_bn128.terminate();
+});
 
 function fixture(name) {
   const p = join(FIX, name);

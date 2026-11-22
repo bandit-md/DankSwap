@@ -566,7 +566,8 @@ async function submit() {
       sig = await c.relay(built);
       toast('ok', 'Unshielded', `${fmt(amt, t)} ${t.symbol} sent to ${shortAddress(S.to.trim())}. Fee ${fmt(built.fee, t)} ${t.symbol}.`, 8000, sig);
     }
-    window.__pool.last = { tab: S.tab, sig, proveMs: built && built.proveMs, publicSignals: built && built.tx.publicSignals, body: built && built.body };
+    // Public data only (proof, public signals, relay body): used by tests/pool.e2e.mjs.
+    window.__pool.last = { tab: S.tab, sig, proveMs: built.proveMs, proof: built.proof, publicSignals: built.tx.publicSignals, body: built.body || null };
     S.amountStr = '';
     $('amountInput').value = '';
   } catch (e) {

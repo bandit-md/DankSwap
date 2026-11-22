@@ -531,33 +531,22 @@ fn swap_move_and_settle<'info>(
     let escrow_bump = [ctx.bumps.escrow];
     let escrow_seeds: &[&[u8]] = &[ESCROW_SEED, input_pool_key.as_ref(), &escrow_bump];
 
-    // 1. Relayer fee in the input mint.
-    if fee > 0 {
-        require_keys_neq!(
-            a.relayer_fee_account.key(),
-            input_vault.key(),
-            PoolError::InvalidRelayerAccount
-        );
-        pay_out(
-            input_pool,
-            &input_vault,
-            &input_pool_ai,
-            &a.relayer_fee_account.to_account_info(),
-            &token_program,
-            input_seeds,
-            fee,
-            PoolError::InvalidRelayerAccount,
-        )?;
-    }
+    // Direct lamport moves (native pool) must not be followed by a CPI that sees
+    // only one side of the move: the runtime would reject it as unbalanced. So
+    // the native wrap passes both accounts to the SyncNative CPI, and the relayer
+    // fee is paid last (step 5), after every CPI.
 
-    // 2. Outflow into the escrow input token account.
+    // 1. Outflow into the escrow input token account.
     let pre_in = a.escrow_input_token.amount;
     let pre_out = a.escrow_output_token.amount;
     if input_pool.is_native {
         // Wrap: lamports into the escrow's wSOL account, then SyncNative.
         lamports_out(&input_vault, &escrow_in_ai, amount_in)?;
-        let ix = spl_token::instruction::sync_native(&spl_token::ID, escrow_in_ai.key)?;
-        invoke(&ix, &[escrow_in_ai.clone(), token_program.clone()])?;
+        let mut ix = spl_token::instruction::sync_native(&spl_token::ID, escrow_in_ai.key)?;
+        // SyncNative reads only its first account; the vault is listed so this
+        // CPI sees both sides of the lamport move above.
+        ix.accounts.push(AccountMeta::new(*input_vault.key, false));
+        invoke(&ix, &[escrow_in_ai.clone(), input_vault.clone(), token_program.clone()])?;
     } else {
         token_transfer(
             &input_vault,
@@ -569,7 +558,7 @@ fn swap_move_and_settle<'info>(
         )?;
     }
 
-    // 3. Swap CPI signed by the escrow PDA.
+    // 2. Swap CPI signed by the escrow PDA.
     let escrow_key = escrow_ai.key();
     let metas: Vec<AccountMeta> = ctx
         .remaining_accounts
@@ -590,7 +579,7 @@ fn swap_move_and_settle<'info>(
     infos.push(a.swap_program.to_account_info());
     invoke_signed(&ix, &infos, &[escrow_seeds])?;
 
-    // 4. Post-swap checks (re-read raw account data; the CPI may have changed it).
+    // 3. Post-swap checks (re-read raw account data; the CPI may have changed it).
     let esc_in = read_token_account(&escrow_in_ai, PoolError::EscrowTampered)?;
     let esc_out = read_token_account(&escrow_out_ai, PoolError::EscrowTampered)?;
     for acc in [&esc_in, &esc_out] {
@@ -608,7 +597,7 @@ fn swap_move_and_settle<'info>(
     require!(received >= swap_amount, PoolError::SwapOutputTooLow);
     let surplus = received - swap_amount;
 
-    // 5. Settle: swap_amount to the output vault, surplus to the relayer.
+    // 4. Settle: swap_amount to the output vault, surplus to the relayer.
     let output_vault = a.output_vault.to_account_info();
     let surplus_ai = a.relayer_surplus_account.to_account_info();
     require_keys_neq!(surplus_ai.key(), escrow_key, PoolError::InvalidSurplusAccount);
@@ -670,6 +659,25 @@ fn swap_move_and_settle<'info>(
                 Some(escrow_seeds),
             )?;
         }
+    }
+
+    // 5. Relayer fee in the input mint, after every CPI (see note above).
+    if fee > 0 {
+        require_keys_neq!(
+            a.relayer_fee_account.key(),
+            input_vault.key(),
+            PoolError::InvalidRelayerAccount
+        );
+        pay_out(
+            input_pool,
+            &input_vault,
+            &input_pool_ai,
+            &a.relayer_fee_account.to_account_info(),
+            &token_program,
+            input_seeds,
+            fee,
+            PoolError::InvalidRelayerAccount,
+        )?;
     }
     Ok(())
 }
