@@ -12,7 +12,7 @@ Each host gets the same security policy: the landing and risk pages cannot be fr
 |---|---|---|
 | **Vercel** (free) | Import the repo, or `npx vercel` in the folder. No build command, output directory `.` | `vercel.json` |
 | **Netlify** (free) | Drag the folder onto app.netlify.com/drop, or connect the repo. No build command, publish directory `.` | `_headers` |
-| **Cloudflare Pages** (free) | Connect the repo or upload the folder. No build command, output `/` | `_headers` |
+| **Cloudflare** (free, recommended) | See "Cloudflare" below | `wrangler.jsonc`, `.assetsignore`, `_headers` |
 | **GitHub Pages** (free) | Settings → Pages → deploy from branch, folder `/ (root)` | `.nojekyll`; headers can't be set, so the `<meta>` security policy in each page is used |
 | **Firebase Hosting** (free) | `firebase init hosting` (keep the existing `firebase.json`), then `firebase deploy` | `firebase.json` |
 | **cPanel, Hostinger, Bluehost, GoDaddy, Namecheap, SiteGround** and other Apache/LiteSpeed shared hosting | Upload everything to `public_html` (or a subfolder) with File Manager or FTP. Make sure hidden files are uploaded too | `.htaccess` |
@@ -21,6 +21,20 @@ Each host gets the same security policy: the landing and risk pages cannot be fr
 | **AWS S3 + CloudFront, Google Cloud Storage, Azure Static Web Apps** | Upload the folder, set `index.html` as the index document. Add the headers from `_headers` as a response-headers policy if you can | `<meta>` policy fallback |
 
 To check a deployment: open `https://yourdomain/app.html`, connect a wallet, and run `curl -I https://yourdomain/` to see the headers.
+
+## Cloudflare
+
+The repo is set up for Cloudflare Workers static assets, Cloudflare's current way to host static sites. It's free and serves from Cloudflare's global network. Tested locally on Cloudflare's runtime (`wrangler dev`): every page gets its security headers, and tests, docs, config files and `.git` are not published (`.assetsignore`). `app.html` is also served at `/app`.
+
+Pick one way to deploy:
+
+1. **Dashboard, no code.** Cloudflare dashboard → Workers & Pages → Create → Import a repository → pick `DankSwap`. Leave the build command empty and keep the deploy command `npx wrangler deploy`. Every push to the chosen branch redeploys.
+2. **GitHub Actions.** Add the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets. `.github/workflows/deploy-cloudflare.yml` runs the tests and deploys on every push to `main`.
+3. **Command line.** `npx wrangler login`, then `npx wrangler deploy` in the folder.
+
+The site goes live at `https://dankswap.<your-subdomain>.workers.dev`. To use your own domain: Workers & Pages → dankswap → Settings → Domains & Routes → Add custom domain. The domain's DNS must be on Cloudflare; a free plan works.
+
+Optional, also free: Cloudflare Web Analytics (cookie-free), and WAF or geo-blocking rules under Security if your legal review asks for them.
 
 ## Phones and browsers
 

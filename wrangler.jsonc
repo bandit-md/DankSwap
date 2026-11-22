@@ -1,0 +1,12 @@
+// Cloudflare deployment (Workers static assets). Free plan is enough.
+// Deploy: npx wrangler deploy   (or connect the repo in the Cloudflare dashboard)
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dankswap",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": ".",
+    // /app.html is also served at /app; _headers covers both paths.
+    "html_handling": "auto-trailing-slash"
+  }
+}

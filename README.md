@@ -20,6 +20,7 @@ This is Phase 1 from the project outline: a working swap app for real users on S
 | `embed.js` | One-line widget to put the swap on any other website |
 | `manifest.webmanifest`, `assets/*.png` | Add-to-home-screen icons and link-preview image |
 | `assets/js/lib.js` | Pure helpers: amount math, address validation, error messages |
+| `wrangler.jsonc`, `.assetsignore`, `.github/workflows/deploy-cloudflare.yml` | Cloudflare deployment (dashboard, GitHub Actions or CLI) |
 | `vercel.json`, `_headers`, `.htaccess`, `web.config`, `firebase.json`, `docs/nginx.conf`, `.nojekyll` | Security headers for Vercel, Netlify, Cloudflare Pages, Apache/cPanel, IIS/Azure, Firebase, Nginx, GitHub Pages |
 | `tests/` | Unit tests, end-to-end browser test, local server |
 

@@ -1,0 +1,18 @@
+# Files that must not be published by Cloudflare (wrangler.jsonc assets directory is ".")
+.git
+.github
+.assetsignore
+node_modules
+tests
+docs
+package.json
+package-lock.json
+README.md
+wrangler.jsonc
+vercel.json
+firebase.json
+web.config
+.htaccess
+.nojekyll
+.gitignore
+.wrangler
