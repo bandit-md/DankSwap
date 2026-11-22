@@ -2,3 +2,6 @@ node_modules/
 .DS_Store
 .vercel/
 .wrangler/
+target/
+relayer/node_modules/
+relayer/data/

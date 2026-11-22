@@ -1,0 +1,19 @@
+{
+  "name": "dankswap-circuits",
+  "private": true,
+  "version": "0.1.0",
+  "description": "DankSwap Phase 2 shielded pool circuits (Transaction(20,2,2)). DEV trusted setup only.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "vk:rust": "node scripts/vk-to-rust.mjs",
+    "fixtures": "node scripts/gen-fixtures.mjs",
+    "test": "node --test --test-concurrency=1 test/"
+  },
+  "devDependencies": {
+    "circom2": "0.2.22",
+    "circomlib": "2.0.5",
+    "circomlibjs": "0.1.7",
+    "snarkjs": "0.7.5"
+  }
+}
