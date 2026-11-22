@@ -14,12 +14,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # The SDK tests compare against circuits/lib (circomlibjs, snarkjs) and use the
+      # relayer's @solana/web3.js, so install both first.
+      - name: Install circuit and relayer dependencies
+        run: |
+          (cd circuits && npm ci)
+          (cd relayer && npm ci)
       - name: Unit tests (site + pool SDK, parity with circuit fixtures)
         run: npm test
       - name: Circuit tests (real proofs + soundness cases)
-        run: cd circuits && npm ci && npm test
+        run: cd circuits && npm test
       - name: Relayer tests
-        run: cd relayer && npm ci && npm test
+        run: cd relayer && npm test
       - name: Browser tests (swap app, compatibility, private pool with in-browser proofs)
         run: |
           npm i --no-save playwright@1
