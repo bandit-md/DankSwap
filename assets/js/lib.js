@@ -1,6 +1,6 @@
 // Pure helpers with no DOM or network access. Covered by tests/lib.test.mjs.
 
-const B58 = '123456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const B58_MAP = Object.fromEntries([...B58].map((c, i) => [c, i]));
 
 /** Decode a base58 string into bytes. Returns null if the string is not valid base58. */

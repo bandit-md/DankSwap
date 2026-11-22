@@ -13,6 +13,18 @@ test('base58 decodes known Solana keys to 32 bytes', () => {
   assert.equal(base58Decode('0OIl'), null);
 });
 
+test('base58 alphabet is complete and round-trips real keys', () => {
+  // Regression: the alphabet once lacked 'L', rejecting valid addresses.
+  const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  for (const ch of B58) assert.ok(base58Decode(ch + '1'.repeat(10)) !== null, ch);
+  // Addresses containing 'L' (Raydium AMM v4, Token-2022, Jupiter v6 programs)
+  for (const a of ['675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4']) {
+    assert.ok(isSolanaAddress(a), a);
+  }
+  // Known decoding: System Program = 32 zero bytes; wSOL mint first byte 0x06
+  assert.equal(base58Decode('So11111111111111111111111111111111111111112')[0], 0x06);
+});
+
 test('isSolanaAddress', () => {
   assert.ok(isSolanaAddress('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'));
   assert.ok(isSolanaAddress('  Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB '));
