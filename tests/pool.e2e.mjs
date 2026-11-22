@@ -13,8 +13,11 @@ import { UNLOCK_MESSAGE } from '../assets/js/pool/keys.js';
 import { base58Encode, bytesToHex, fieldToBytes, base64ToBytes, bytesToBase64, utf8, FIELD_SIZE } from '../assets/js/pool/util.js';
 import { MerkleTree } from '../assets/js/pool/merkle.js';
 import { decodeTransactArgs, encodeProof, extDataHash, parseRelayRequest, publicAmount } from '../assets/js/pool/encode.js';
-import { configPda, poolPda } from '../assets/js/pool/accounts.js';
-import { mintField } from '../assets/js/pool/note.js';
+import { configPda, poolPda, escrowPda, nullifierPda } from '../assets/js/pool/accounts.js';
+import { mintField, mintFieldBytes, decryptOutput, commitmentHash } from '../assets/js/pool/note.js';
+import { deriveKeys } from '../assets/js/pool/keys.js';
+import { requiredFee } from '../assets/js/pool/fees.js';
+import { swapMinOut, MOCK_SWAP_PROGRAM_ID } from '../assets/js/pool/swap.js';
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require('playwright');
@@ -25,6 +28,7 @@ const step = (msg) => { if (process.env.DEBUG) console.log('step:', msg); };
 
 const PROGRAM_ID = 'FtV5X43qGc37tjUkbzxoexyg1A4oFUv9wE42d3Ukhtc6';
 const WSOL = 'So11111111111111111111111111111111111111112';
+const DEV_USDC = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
 const RELAYER = web3.Keypair.generate().publicKey.toBase58();
 const RECIPIENT = web3.Keypair.generate().publicKey.toBase58();
 const ZK = ['transaction.wasm', 'transaction_final.zkey', 'verification_key.json'].map((f) => join(ROOT, 'assets', 'zk', f));
@@ -72,8 +76,14 @@ async function main() {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const errors = [];
-  const leaves = []; // relayer index
+  const leaves = []; // relayer index (SOL pool)
   const tree = new MerkleTree(20);
+  const usdcLeaves = []; // relayer index (USDC pool)
+  const usdcTree = new MerkleTree(20);
+  const spentPdas = new Set(); // nullifier accounts the program would have created
+  const markSpent = (b) => b.args.inputNullifiers.forEach((n) => spentPdas.add(nullifierPda(web3, PROGRAM_ID, base64ToBytes(n)).toBase58()));
+  let swapOn = false; // relayer advertises the dev swap route (mock-swap)
+  const quotes = [];
   const relayed = [];
   const sent = [];
   const configKey = configPda(web3, PROGRAM_ID).toBase58();
@@ -92,14 +102,25 @@ async function main() {
     if (req.method() === 'OPTIONS') return r.fulfill({ status: 204, headers: cors });
     const u = new URL(req.url());
     if (u.pathname === '/info') {
-      return r.fulfill({ headers: cors, json: { relayer: RELAYER, feeBps: 30, minFeeLamports: { SOL: 3_000_000, USDC: 500_000, USDT: 500_000 }, createAtaFee: { USDC: 500_000, USDT: 500_000 }, cluster: 'devnet', programId: PROGRAM_ID } });
+      const info = { relayer: RELAYER, feeBps: 30, minFeeLamports: { SOL: 3_000_000, USDC: 500_000, USDT: 500_000 }, createAtaFee: { USDC: 500_000, USDT: 500_000 }, cluster: 'devnet', programId: PROGRAM_ID };
+      if (swapOn) info.swap = { enabled: true, route: 'mock', program: MOCK_SWAP_PROGRAM_ID, slippageBps: 50, swapFeeBps: 0, quoteTtlMs: 60_000, reason: '' };
+      return r.fulfill({ headers: cors, json: info });
+    }
+    if (u.pathname === '/swap/quote') {
+      const q = Object.fromEntries(u.searchParams);
+      quotes.push(q);
+      const amount = BigInt(q.amount);
+      const outAmount = (amount * 150n) / 1000n; // 150 USDC per SOL
+      return r.fulfill({ headers: cors, json: {
+        inputMint: q.inputMint, outputMint: q.outputMint, amount: q.amount, outAmount: outAmount.toString(), otherAmountThreshold: outAmount.toString(),
+        minOut: swapMinOut(outAmount, 50).toString(), feeInInputMint: '3000000', slippageBps: 50, swapFeeBps: 0, priceImpactPct: '0.0021', route: 'mock', expiresAt: Date.now() + 60_000,
+      } });
     }
     if (u.pathname === '/commitments') {
       const from = Number(u.searchParams.get('from'));
-      const items = u.searchParams.get('pool') === WSOL ? leaves.slice(from) : [];
-      const n = u.searchParams.get('pool') === WSOL ? leaves.length : 0;
-      const root = u.searchParams.get('pool') === WSOL ? tree.root() : new MerkleTree(20).root();
-      return r.fulfill({ headers: cors, json: { items, nextIndex: n, root: bytesToHex(fieldToBytes(root)) } });
+      const pool = u.searchParams.get('pool');
+      const [L, T] = pool === WSOL ? [leaves, tree] : pool === DEV_USDC ? [usdcLeaves, usdcTree] : [[], new MerkleTree(20)];
+      return r.fulfill({ headers: cors, json: { items: L.slice(from), nextIndex: L.length, root: bytesToHex(fieldToBytes(T.root())) } });
     }
     if (u.pathname === '/relay') {
       relayed.push(JSON.parse(req.postData()));
@@ -115,7 +136,7 @@ async function main() {
       case 'getAccountInfo': return ok({ context: ctxSlot, value: body.params[0] === configKey ? { data: ['', 'base64'], executable: false, lamports: 1, owner: PROGRAM_ID, rentEpoch: 0 } : null });
       case 'getBalance': return ok({ context: ctxSlot, value: 2_000_000_000 });
       case 'getTokenAccountsByOwner': return ok({ context: ctxSlot, value: [] });
-      case 'getMultipleAccounts': return ok({ context: ctxSlot, value: body.params[0].map(() => null) });
+      case 'getMultipleAccounts': return ok({ context: ctxSlot, value: body.params[0].map((k) => (spentPdas.has(k) ? { data: ['', 'base64'], executable: false, lamports: 946_560, owner: PROGRAM_ID, rentEpoch: 0 } : null)) });
       case 'getLatestBlockhash': return ok({ context: ctxSlot, value: { blockhash: 'EETubP5AKHgjPAhzPAFcb8BAY1hMH639CWCFTqi3hq1k', lastValidBlockHeight: 1000 } });
       case 'sendTransaction': sent.push(body.params[0]); return ok('5shieldSignature');
       case 'getSignatureStatuses': return ok({ context: ctxSlot, value: [{ slot: 2, confirmations: 1, err: null, confirmationStatus: 'confirmed' }] });
@@ -263,8 +284,84 @@ async function main() {
   await page.fill('#amountInput', '0.01');
   await page.waitForFunction(() => document.querySelector('#cta').textContent === 'Enter a valid dank… address');
 
-  // 9. Phone layout: no sideways scroll, 16px inputs, banner visible
-  step('9. Phone layout: no sideways scroll, 16px i');
+  // The program appended the unshield's outputs (the 0.397 SOL change note) and created its nullifiers.
+  markSpent(body);
+  for (let i = 0; i < 2; i++) {
+    const c = BigInt(unLast.publicSignals[6 + i]);
+    leaves.push({ index: leaves.length, commitment: bytesToHex(fieldToBytes(c)), encryptedOutput: i === 0 ? body.extData.encryptedOutput1 : body.extData.encryptedOutput2 });
+    tree.insert(c);
+  }
+
+  // 9. Private swap through a relayer that offers the dev swap route: SOL → USDC, real proof with swap fields.
+  step('9. Private swap SOL → USDC');
+  swapOn = true;
+  await page.reload();
+  await page.waitForFunction(() => window.__pool && window.__pool.state.deployed === true);
+  await page.waitForFunction((o) => document.querySelector('#walletBtn').textContent.includes(o.slice(0, 4)), OWNER); // silent reconnect
+  await page.click('#unlockBtn');
+  await page.waitForFunction(() => window.__pool.state.unlocked);
+  await page.waitForFunction(() => document.querySelector('#balList li[data-symbol="SOL"] .v').textContent === '0.397 SOL');
+  await page.click('#tab-swap');
+  await page.waitForFunction(() => window.__pool.state.swap === true);
+  assert.equal(await page.isVisible('#formFields'), true);
+  assert.equal(await page.isVisible('#toTokenSeg'), true);
+  assert.equal(await page.isHidden('#toWrap'), true);
+  assert.match(await page.textContent('#swapText'), /dev route/);
+  assert.equal(await page.evaluate(() => window.__pool.state.toToken), 'USDC');
+  assert.equal(await page.isDisabled('#toTokenSeg [data-symbol="SOL"]'), true); // cannot swap SOL to SOL
+  await page.click('#tokenSeg [role="radio"]:has-text("SOL")');
+  await page.fill('#amountInput', '0.1');
+  await page.waitForFunction(() => document.querySelector('#cta').textContent === 'Swap 0.1 SOL → USDC', null, { timeout: 15_000 });
+  assert.deepEqual(quotes[quotes.length - 1], { inputMint: WSOL, outputMint: DEV_USDC, amount: '100000000' });
+  assert.equal(await page.textContent('#dOut'), '≈ 15 USDC');
+  assert.equal(await page.textContent('#dMin'), '14.925 USDC');
+  assert.equal(await page.textContent('#dImpact'), '0.21%');
+  assert.equal(await page.textContent('#dFee'), '0.003 SOL');
+  assert.equal(await page.textContent('#dTotal'), '0.103 SOL');
+  if (shots) await page.screenshot({ path: `${shots}/private-swap.png` });
+  const t2 = Date.now();
+  await cta.click();
+  await page.waitForSelector('.toast.ok >> text=Swapped privately', { timeout: 300_000 });
+  const swapMs = Date.now() - t2;
+  assert.equal(relayed.length, 2);
+  const sb = relayed[1];
+  const swLast = await page.evaluate(() => window.__pool.last);
+  const escrow = escrowPda(web3, PROGRAM_ID, poolPda(web3, PROGRAM_ID, WSOL)).toBase58();
+  assert.equal(sb.instruction, 'transact_swap');
+  assert.equal(sb.pool, WSOL);
+  assert.equal(sb.args.outputPool, DEV_USDC);
+  assert.equal(sb.args.swapAmount, '14925000');
+  assert.equal(sb.args.swapData, '');
+  assert.equal(sb.extData.recipient, escrow);
+  assert.equal(sb.extData.relayer, RELAYER);
+  assert.equal(sb.extData.extAmount, '-100000000');
+  assert.equal(sb.extData.fee, requiredFee({ feeBps: 30, minFeeLamports: { SOL: 3_000_000 } }, 'SOL', 100_000_000n).toString());
+  const sp = parseRelayRequest(sb);
+  assert.equal(bytesToHex(sp.args.swapMintField), bytesToHex(mintFieldBytes(DEV_USDC)));
+  const sps = swLast.publicSignals;
+  assert.equal(sps[0], tree.root().toString());
+  assert.equal(sps[1], (FIELD_SIZE - 103_000_000n).toString());
+  assert.equal(sps[2], (await extDataHash(sp.extData)).toString(), 'extDataHash binds escrow, relayer and the encrypted swap output');
+  assert.equal(sps[3], mintField(WSOL).toString());
+  assert.equal(sps[8], mintField(DEV_USDC).toString());
+  assert.equal(sps[9], '14925000');
+  assert.equal(sps[10], BigInt('0x' + bytesToHex(sp.args.swapCommitment)).toString());
+  assert.equal(bytesToHex(sp.args.proofA), bytesToHex(encodeProof(swLast.proof).proofA));
+  assert.ok(await snarkjs.groth16.verify(vk, sps, swLast.proof), 'swap proof (generated in the browser) verifies');
+  // the swap note is encrypted to the user's own key and matches swapCommitment
+  const userKeys = await deriveKeys(Uint8Array.from(UNLOCK_SIG));
+  const dec = decryptOutput(sp.extData.encryptedSwapOutput, userKeys.encSecret);
+  assert.equal(dec.amount, 14_925_000n);
+  assert.equal(commitmentHash(dec.amount, userKeys.pubKey, dec.blinding, mintField(DEV_USDC)).toString(), sps[10]);
+  await page.waitForFunction(() => document.querySelector('#balList li[data-symbol="SOL"] .v').textContent === '0 SOL');
+  // the program appends swapCommitment to the USDC tree; the page finds the new note there
+  usdcLeaves.push({ index: 0, commitment: bytesToHex(fieldToBytes(BigInt(sps[10]))), encryptedOutput: sb.extData.encryptedSwapOutput });
+  usdcTree.insert(BigInt(sps[10]));
+  await page.click('#refreshBtn');
+  await page.waitForFunction(() => document.querySelector('#balList li[data-symbol="USDC"] .v').textContent === '14.925 USDC');
+
+  // 10. Phone layout: no sideways scroll, 16px inputs, banner visible
+  step('10. Phone layout: no sideways scroll, 16px i');
   const m = await browser.newContext({ ...devices['iPhone 13'] });
   await m.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   await m.route('https://api.devnet.solana.com/**', (r) => r.fulfill({ status: 503, body: 'offline' }));
@@ -290,7 +387,7 @@ async function main() {
   server.close();
   // snarkjs keeps a bn128 worker pool alive in Node after verify(); release it.
   if (globalThis.curve_bn128) await globalThis.curve_bn128.terminate();
-  console.log(`pool e2e: all checks passed. In-browser proving (incl. first download of the 8.8 MB zkey): shield ${shieldMs} ms (end to end), unshield ${unshieldMs} ms; worker-reported proof time ${shieldLast.proveMs} ms / ${unLast.proveMs} ms`);
+  console.log(`pool e2e: all checks passed. In-browser proving (incl. first download of the 8.8 MB zkey): shield ${shieldMs} ms (end to end), unshield ${unshieldMs} ms, swap ${swapMs} ms; worker-reported proof time ${shieldLast.proveMs} ms / ${unLast.proveMs} ms / ${swLast.proveMs} ms`);
 }
 
 main().catch((e) => {

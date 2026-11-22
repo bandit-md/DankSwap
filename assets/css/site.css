@@ -392,3 +392,10 @@ small.warn { color: var(--warn); }
   .pv-tokens button { gap: 4px; font-size: 13px; }
   .pv-tokens .tok-icon { display: none; }
 }
+
+/* ---------- Private swap ---------- */
+/* private.html Swap tab: output token picker and quote rows. Append-only. */
+.pv-swapto { padding: 12px 4px 0; }
+.pv-swapto .box-label { display: block; margin: 0 2px 8px; }
+.pv-swapto .pv-tokens { margin-bottom: 0; }
+.details .v.warn { color: var(--warn); }

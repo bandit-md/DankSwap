@@ -1,6 +1,7 @@
 // Relayer configuration from environment variables. See relayer/README.md.
 import { readFileSync } from 'node:fs';
 import { POOL_CONFIG } from '../../assets/js/pool/config.js';
+import { JUPITER_V6_PROGRAM_ID, MOCK_SWAP_PROGRAM_ID } from '../../assets/js/pool/swap.js';
 
 export const GENESIS = {
   devnet: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
@@ -25,6 +26,52 @@ export function parseKeypairSecret(value) {
     throw new Error('RELAYER_KEYPAIR must hold a 64-byte secret key array');
   }
   return Uint8Array.from(arr);
+}
+
+/**
+ * Private swap route (docs/PHASE2_SPEC.md §8). Swaps CPI config.swap_program, so the relayer must
+ * route through the same program the pool was initialized with:
+ * - mainnet: Jupiter v6 (default), quotes and instructions from the keyless Swap API V2 /build;
+ * - devnet: no Jupiter, so swaps are off unless SWAP_PROGRAM is the test-only mock-swap program
+ *   (programs/mock-swap), priced from SWAP_MOCK_RATES.
+ */
+function swapConfig(env, cluster) {
+  const program = env.SWAP_PROGRAM ?? (cluster === 'mainnet' ? JUPITER_V6_PROGRAM_ID : '');
+  let route = '';
+  if (program === JUPITER_V6_PROGRAM_ID) {
+    if (cluster !== 'mainnet') throw new Error('SWAP_PROGRAM is Jupiter, which only exists on mainnet. Use the mock-swap program for devnet tests, or leave it unset.');
+    route = 'jupiter';
+  } else if (program === MOCK_SWAP_PROGRAM_ID) {
+    if (cluster === 'mainnet') throw new Error('The mock-swap program is test-only and anyone can drain it. Refusing to use it on mainnet.');
+    route = 'mock';
+  } else if (program) {
+    throw new Error(`SWAP_PROGRAM ${program} is not supported (Jupiter v6 ${JUPITER_V6_PROGRAM_ID} or mock-swap ${MOCK_SWAP_PROGRAM_ID})`);
+  }
+  let mockRates = {};
+  if (env.SWAP_MOCK_RATES) {
+    try {
+      mockRates = JSON.parse(env.SWAP_MOCK_RATES);
+    } catch (_) {
+      throw new Error('SWAP_MOCK_RATES must be JSON, e.g. {"SOL/USDC":150}');
+    }
+  } else if (route === 'mock') {
+    mockRates = { 'SOL/USDC': 150, 'SOL/USDT': 150, 'USDC/USDT': 1 };
+  }
+  return {
+    route, // '' (off), 'jupiter' or 'mock'
+    program,
+    jupiterApi: (env.JUPITER_API || 'https://api.jup.ag/swap/v2').replace(/\/+$/, ''),
+    // Buffer under the quote for price moves while the user proves (and Jupiter's slippageBps).
+    slippageBps: int(env, 'SWAP_SLIPPAGE_BPS', 50),
+    // Extra margin under the quote kept by the relayer as surplus (on top of the input-mint fee).
+    swapFeeBps: int(env, 'SWAP_FEE_BPS', 0),
+    // Cap on the route's account count so the transaction fits 1232 bytes with lookup tables.
+    maxAccounts: int(env, 'JUPITER_MAX_ACCOUNTS', 20),
+    quoteTtlMs: int(env, 'SWAP_QUOTE_TTL_MS', 60_000),
+    // Keyless Jupiter allows 30 requests/min per caller: stay under it for the whole relayer.
+    jupiterPerMin: int(env, 'JUPITER_PER_MIN', 25),
+    mockRates,
+  };
 }
 
 export function loadConfig(env = process.env) {
@@ -64,7 +111,9 @@ export function loadConfig(env = process.env) {
     rateLimit: {
       relayPerMin: int(env, 'RATE_RELAY_PER_MIN', 6),
       readPerMin: int(env, 'RATE_READ_PER_MIN', 120),
+      quotePerMin: int(env, 'RATE_QUOTE_PER_MIN', 20),
     },
+    swap: swapConfig(env, cluster),
     // Address lookup table holding the pool's static accounts (scripts/lookup-table.mjs). Needed for
     // token unshields that create the recipient's token account: without it they exceed 1232 bytes.
     lookupTable: env.RELAYER_LOOKUP_TABLE || '',

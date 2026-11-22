@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// DankSwap private pool relayer: GET /info, POST /relay, GET /commitments, GET /health
+// DankSwap private pool relayer: GET /info, POST /relay, GET /swap/quote, GET /commitments, GET /health
 // (docs/PHASE2_SPEC.md §9). Plain node:http, no framework. UNAUDITED; devnet unless explicitly allowed.
 import http from 'node:http';
 import { createRequire } from 'node:module';
@@ -65,6 +65,7 @@ function readBody(req) {
 export function createHandler({ config, relayer, indexer, log = console }) {
   const relayLimit = new RateLimiter(config.rateLimit.relayPerMin);
   const readLimit = new RateLimiter(config.rateLimit.readPerMin);
+  const quoteLimit = new RateLimiter(config.rateLimit.quotePerMin ?? 20);
   const started = Date.now();
 
   return async function handler(req, res) {
@@ -102,6 +103,18 @@ export function createHandler({ config, relayer, indexer, log = console }) {
         const page = indexer.page(pool, from);
         if (!page) return send(404, { error: 'Unknown pool' });
         return send(200, page);
+      }
+      if (req.method === 'GET' && url.pathname === '/swap/quote') {
+        // Each quote costs a Jupiter request (keyless: 30/min for the whole relayer), so it has
+        // its own, tighter per-IP limit on top of the router's global budget.
+        if (!quoteLimit.allow(ip)) return send(429, { error: 'Too many quote requests. Wait a minute.' });
+        const q = {
+          inputMint: url.searchParams.get('inputMint') || '',
+          outputMint: url.searchParams.get('outputMint') || '',
+          amount: url.searchParams.get('amount') || '',
+        };
+        if (!/^\d{1,20}$/.test(q.amount)) return send(400, { error: 'amount must be a positive integer (base units of the input token)' });
+        return send(200, await relayer.quoteSwap(q));
       }
       if (req.method === 'POST' && url.pathname === '/relay') {
         if (!relayLimit.allow(ip)) return send(429, { error: 'Too many relay requests. Wait a minute.' });

@@ -120,6 +120,11 @@
               </div>
             </div>
 
+            <div class="pv-swapto" id="swapToWrap" hidden>
+              <span class="box-label" id="swapToLabel">Receive privately</span>
+              <div class="pv-tokens" role="radiogroup" aria-labelledby="swapToLabel" id="toTokenSeg"></div>
+            </div>
+
             <div class="recv" id="toWrap" hidden>
               <label class="box-label" for="toInput" id="toLabel">Recipient</label>
               <input id="toInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" enterkeyhint="done" spellcheck="false">
@@ -127,6 +132,9 @@
             </div>
 
             <div class="details" id="details" hidden>
+              <div class="kv" id="dOutRow" hidden><span>Expected</span><span class="v" id="dOut">—</span></div>
+              <div class="kv" id="dMinRow" hidden><span>Minimum received</span><span class="v" id="dMin">—</span></div>
+              <div class="kv" id="dImpactRow" hidden><span>Price impact</span><span class="v" id="dImpact">—</span></div>
               <div class="kv"><span id="dFeeLabel">Relayer fee</span><span class="v" id="dFee">—</span></div>
               <div class="kv"><span id="dTotalLabel">Leaves your private balance</span><span class="v" id="dTotal">—</span></div>
               <div class="kv"><span>Network</span><span class="v" id="dNet">—</span></div>

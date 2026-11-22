@@ -3,7 +3,7 @@
 **What this is:** an internal code review and test pass done while building Phase 2.
 **What it is not:** an independent security audit. Real funds need two independent audits (circuits and program), a public trusted-setup ceremony, and the fixes below.
 
-Status: **devnet preview**. Shield, private send and unshield via a relayer are complete and tested. Private swap is verified on-chain against a mock swap program; Jupiter routing is tracked separately (see "Private swap").
+Status: **devnet preview**. Shield, private send, unshield via a relayer and private swap are complete and tested. The swap program side is verified on a real SVM with a mock swap program. The Jupiter route path is tested against realistic mocks only: Jupiter is mainnet-only and unreachable from the build sandbox.
 
 ## What was verified, and how
 
@@ -58,4 +58,13 @@ Status: **devnet preview**. Shield, private send and unshield via a relayer are 
 
 ## Private swap
 
-The program side is done and passes on a real SVM with a mock swap program. The client and relayer integration with Jupiter (quoting, building the route for the escrow, lookup tables) is being finished separately; see the status in the README. On devnet, swaps can only use the mock route, because Jupiter is mainnet-only.
+- **Program:** passes on a real SVM (LiteSVM, SOL→USDC via mock swap, low output rejected, surplus to relayer).
+- **SDK and relayer:** `GET /swap/quote` gets a Jupiter `/build` route for the escrow PDA. The user proves a swap note worth `minOut`. At relay time, the relayer rebuilds the route and refuses to proceed unless both `outAmount` and `otherAmountThreshold` cover `swapAmount`, so a bad quote fails safely before signing. Route setup is limited to creating token accounts for the escrow or relayer, and no foreign signers are allowed.
+- **Tests:** a real in-browser swap proof (~3.5 s), the swap note found in the output pool, transaction size 1,204 bytes with lookup tables (mock route).
+
+Unverified until mainnet:
+- whether Jupiter `/build` accepts an off-curve PDA as `taker`;
+- real route sizes and compute (the relayer retries with fewer accounts if a transaction is too large);
+- live rate limits.
+
+The relayer pays one-time rent for escrow token accounts; the rent for a swap's wSOL output is returned to it.

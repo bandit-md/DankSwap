@@ -11,7 +11,7 @@ This is Phase 1 from the project outline: a working swap app for real users on S
 - **Shield:** deposit and get a private note.
 - **Send privately:** pay another user's `dank…` address.
 - **Unshield:** withdraw to any Solana address. A relayer pays gas and takes a fee from the amount.
-- **Private swap:** swap inside the pool. The program side is verified on a real SVM; the Jupiter route integration is in progress.
+- **Private swap:** swap inside the pool through Jupiter (mainnet) or the mock swap program (devnet testing). The output note is worth at least the quoted minimum.
 
 | Part | Where | Docs |
 |---|---|---|

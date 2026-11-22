@@ -10,6 +10,7 @@ import { encodeProof, relayRequestBody } from './encode.js';
 import {
   associatedTokenAddress, computeUnitLimitInstruction, configPda, nullifierPda, transactInstruction,
 } from './accounts.js';
+import { swapEscrowAccounts } from './swap.js';
 import { requiredFee } from './fees.js';
 import { isSanctioned } from './sanctions.js';
 import { base64ToBytes, bytesToBase64, bytesToHex, fieldToBytes, hexToBytes, bytesToBigInt, isSolanaAddress } from './util.js';
@@ -408,10 +409,107 @@ export class PoolClient {
     return j.signature;
   }
 
-  /** Private swaps need Jupiter routes and are mainnet-only (§10). Not enabled in this preview. */
-  async buildSwap() {
-    if (this.cluster !== 'mainnet') throw new PoolError('SWAP_DEVNET', 'Private swaps run through Jupiter, which only exists on mainnet.');
+  /**
+   * Can this page swap privately? Swaps CPI the pool's configured swap program: Jupiter, which only
+   * exists on mainnet (and mainnet needs POOL_AUDITED), or, for dev testing, the mock-swap program
+   * when the relayer advertises that route. Returns { ok, code, reason }.
+   */
+  swapSupport(info = this.info) {
+    if (this.cluster !== 'devnet' && !(this.cluster === 'mainnet' && this.config.POOL_AUDITED === true)) {
+      return { ok: false, code: 'CLUSTER', reason: 'The private pool is not enabled on this network.' };
+    }
+    const s = info && info.swap;
+    if (s && s.enabled && (this.cluster === 'mainnet' ? s.route === 'jupiter' : s.route === 'mock')) return { ok: true, code: '', reason: '', route: s.route };
+    if (this.cluster !== 'mainnet') return { ok: false, code: 'SWAP_DEVNET', reason: 'Private swaps run through Jupiter, which only exists on mainnet.' };
+    return { ok: false, code: 'SWAP_UNAVAILABLE', reason: (s && s.reason) || 'The relayer does not offer private swaps.' };
+  }
+
+  async _swapInfo() {
     this.assertClusterAllowed();
-    throw new PoolError('SWAP_UNAVAILABLE', 'Private swaps are not enabled yet.');
+    let info = null;
+    try {
+      info = await this.relayerInfo();
+    } catch (e) {
+      // On devnet a missing relayer reads the same as no swap route.
+      if (this.cluster === 'mainnet') throw e;
+    }
+    const sup = this.swapSupport(info);
+    if (!sup.ok) throw new PoolError(sup.code, sup.reason);
+    return info;
+  }
+
+  _swapTokens(fromToken, toToken) {
+    const tIn = this.token(fromToken);
+    const tOut = this.token(toToken);
+    if (tIn.mint === tOut.mint) throw new PoolError('SWAP_SAME', 'Choose two different tokens');
+    return { tIn, tOut };
+  }
+
+  /**
+   * GET /swap/quote for `amount` (base units of fromToken, the amount that leaves the pool for the
+   * swap; the relayer fee comes on top). Returns BigInts: { outAmount, minOut, fee, priceImpactPct,
+   * expiresAt, ... }. minOut becomes the proven swapAmount: the note you receive is worth exactly that.
+   */
+  async quoteSwap({ fromToken, toToken, amount }) {
+    const info = await this._swapInfo();
+    const { tIn, tOut } = this._swapTokens(fromToken, toToken);
+    const amt = BigInt(amount);
+    if (amt <= 0n) throw new PoolError('AMOUNT', 'Enter an amount');
+    const q = await this._getJson(`/swap/quote?inputMint=${encodeURIComponent(tIn.mint)}&outputMint=${encodeURIComponent(tOut.mint)}&amount=${amt}`);
+    if (q.inputMint !== tIn.mint || q.outputMint !== tOut.mint || String(q.amount) !== amt.toString()) throw new PoolError('RELAYER', 'The relayer quoted a different swap.');
+    const outAmount = BigInt(q.outAmount);
+    const minOut = BigInt(q.minOut);
+    if (minOut <= 0n || minOut > outAmount) throw new PoolError('RELAYER', 'The relayer sent an invalid quote.');
+    // Never pay less than the published schedule; a quote asking for more is shown as is.
+    const scheduleFee = requiredFee(info, tIn.symbol, amt);
+    const fee = BigInt(q.feeInInputMint || 0) > scheduleFee ? BigInt(q.feeInInputMint) : scheduleFee;
+    return {
+      fromToken: tIn.symbol, toToken: tOut.symbol, inputMint: tIn.mint, outputMint: tOut.mint, amount: amt,
+      outAmount, minOut, fee, otherAmountThreshold: BigInt(q.otherAmountThreshold || q.minOut),
+      priceImpactPct: Number(q.priceImpactPct || 0), slippageBps: Number(q.slippageBps || 0), swapFeeBps: Number(q.swapFeeBps || 0),
+      route: q.route, routePlan: q.routePlan || [], expiresAt: Number(q.expiresAt || 0),
+    };
+  }
+
+  /**
+   * Private swap, proving step. Spends `amount + fee` of fromToken (extAmount = -amount into the
+   * input pool's escrow, fee to the relayer) and proves a new note of toToken worth quote.minOut,
+   * owned by this account and encrypted to its own key (§4 swap public inputs, §5 extData).
+   * Returns the POST /relay body ({ instruction: "transact_swap" }).
+   */
+  async buildSwap({ fromToken, toToken, amount, quote = null, onProgress } = {}) {
+    const info = await this._swapInfo();
+    this._requireKeys();
+    const { tIn, tOut } = this._swapTokens(fromToken, toToken);
+    const amt = BigInt(amount);
+    if (amt <= 0n) throw new PoolError('AMOUNT', 'Enter an amount');
+    let q = quote;
+    const stale = !q || q.inputMint !== tIn.mint || q.outputMint !== tOut.mint || BigInt(q.amount) !== amt || (q.expiresAt && Date.now() > q.expiresAt);
+    if (stale) q = await this.quoteSwap({ fromToken, toToken, amount: amt });
+    const fee = q.fee;
+    const ins = await this._spendPlan(tIn.symbol, amt + fee);
+    const change = ins.reduce((s, n) => s + n.amount, 0n) - amt - fee;
+    const outputs = change > 0n ? [new Note({ amount: change, pubKey: this.keys.pubKey, encPublic: this.keys.encPublic, mint: tIn.mint })] : [];
+    const e = swapEscrowAccounts(this.web3, this.config.POOL_PROGRAM_ID, tIn.mint, tOut.mint);
+    const st = this._st(tIn.mint);
+    const tx = await buildTransaction({
+      tree: st.tree, mintField: mintField(tIn.mint), inputs: ins, outputs,
+      extData: { recipient: e.escrow, relayer: this._relayerFeeAccount(info, tIn), extAmount: -amt, fee },
+      swap: { mintField: mintField(tOut.mint), amount: q.minOut, pubKey: this.keys.pubKey, encPublic: this.keys.encPublic },
+    });
+    const { args, ms, proof } = await this._prove(tx, onProgress);
+    // swapData stays empty: the relayer re-routes |extAmount| and fills in the route itself.
+    const body = relayRequestBody({ instruction: 'transact_swap', pool: tIn.mint, args: { ...args, outputPool: tOut.mint }, extData: tx.extData });
+    return { body, fee, quote: q, inputs: ins, tx, proof, proveMs: ms, swapNote: tx.swapNote, escrow: e.escrow, toToken: tOut.symbol };
+  }
+
+  /**
+   * Private swap: quote, prove, relay. The new toToken note shows up after the next sync of the
+   * output pool (GET /commitments), like any other incoming note. Returns { signature, built }.
+   */
+  async swap({ fromToken, toToken, amount, quote = null, onProgress } = {}) {
+    const built = await this.buildSwap({ fromToken, toToken, amount, quote, onProgress });
+    const signature = await this.relay(built);
+    return { signature, built };
   }
 }

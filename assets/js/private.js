@@ -1,4 +1,5 @@
-// Private balance page (private.html): shield, private send, unshield, swap (mainnet only).
+// Private balance page (private.html): shield, private send, unshield, private swap (Jupiter on
+// mainnet once audited, or a relayer's dev swap route on devnet).
 // Uses the browser SDK in assets/js/pool/ and the Wallet Standard client in wallet.js.
 import { getWallets, onWalletsChanged, connect, lastWalletName, isMobile, mobileDeepLinks, INSTALL_LINKS } from './wallet.js';
 import { parseUnits, formatUnits, formatUnitsPlain, shortAddress } from './lib.js';
@@ -47,12 +48,18 @@ const S = {
   privErr: {},
   wallet: {}, // symbol → bigint | null (public wallet balance, for Shield)
   quote: null, // { key, fee, needsAta } for unshield
+  toToken: null, // swap output token
+  swapQuote: null, // { key, q } from GET /swap/quote
+  swapQuoteErr: '',
   quoting: false,
   busy: false,
   syncing: false,
 };
 
 const tokens = () => (CFG.TOKENS[CLUSTER] || []);
+/** Swap availability for this page and relayer (PoolClient.swapSupport without needing web3 yet). */
+const swapSupport = () => PoolClient.prototype.swapSupport.call({ cluster: CLUSTER, config: CFG }, S.info);
+const SWAP_OFF_TEXT = 'Private swaps route through Jupiter, which only exists on Solana mainnet. They stay off in this devnet preview and on mainnet until the pool is audited.';
 const tokenAvailable = (t) => !!t.mint;
 const fmt = (v, t) => formatUnits(v, t.decimals, t.symbol === 'SOL' ? 6 : 4);
 
@@ -123,7 +130,9 @@ async function checkPool() {
   } else {
     S.infoErr = 'No relayer is configured, so private balances and relayed actions are unavailable.';
   }
+  pickToToken();
   render();
+  scheduleSwapQuote();
 }
 
 /* ---------------- wallet ---------------- */
@@ -310,6 +319,21 @@ function renderTokens() {
   }
 }
 
+function renderToTokens() {
+  const seg = $('toTokenSeg');
+  seg.replaceChildren();
+  for (const t of tokens()) {
+    const on = S.toToken === t;
+    const ok = tokenAvailable(t) && t !== S.token;
+    seg.append(el('button', {
+      type: 'button', role: 'radio', 'aria-checked': String(on), tabindex: on ? '0' : '-1', disabled: !ok || S.busy,
+      title: !tokenAvailable(t) ? `No ${t.symbol} pool on ${CLUSTER}` : t === S.token ? 'Already the token you pay with' : `Receive ${t.symbol}`,
+      'data-symbol': t.symbol,
+      onclick: () => pickToToken2(t),
+    }, el('span', { class: 'tok-icon', 'aria-hidden': 'true', style: `background:${t.color}`, text: t.symbol === 'SOL' ? 'SOL' : t.symbol.slice(0, 2) }), document.createTextNode(t.symbol)));
+  }
+}
+
 function renderBalances() {
   const list = $('balList');
   list.replaceChildren();
@@ -360,6 +384,7 @@ function currentFee() {
   const amt = amountRaw();
   if (!S.info || !t) return null;
   if (S.tab === 'send') return requiredFee(S.info, t.symbol, 0n);
+  if (S.tab === 'swap') return S.swapQuote && S.swapQuote.key === swapKey() ? S.swapQuote.q.fee : null;
   if (S.tab === 'unshield') {
     if (t.native || (S.quote && S.quote.key === quoteKey())) {
       return requiredFee(S.info, t.symbol, amt || 0n, t.native ? false : S.quote.needsAta);
@@ -367,6 +392,16 @@ function currentFee() {
     return null;
   }
   return 0n;
+}
+
+function swapKey() {
+  const amt = amountRaw();
+  return `${S.token && S.token.symbol}|${S.toToken && S.toToken.symbol}|${amt || 0}`;
+}
+
+function pickToToken() {
+  if (S.toToken && S.toToken !== S.token && tokenAvailable(S.toToken)) return;
+  S.toToken = tokens().find((x) => tokenAvailable(x) && x !== S.token) || null;
 }
 
 function quoteKey() {
@@ -392,7 +427,13 @@ function render() {
     $(`panel-${tab}`).hidden = !on;
   }
   const swap = S.tab === 'swap';
-  $('formFields').hidden = swap;
+  const sup = swapSupport();
+  $('formFields').hidden = swap && !sup.ok;
+  if (swap) {
+    $('swapText').textContent = sup.ok
+      ? `Swap inside your private balance. Your notes pay into the pool's swap escrow, ${sup.route === 'mock' ? 'a test swap program (dev route, not real prices)' : 'Jupiter'} swaps it, and a new private note worth at least the minimum below lands in your balance. A relayer submits it, so your wallet never appears.`
+      : (CLUSTER === 'devnet' ? SWAP_OFF_TEXT : `${sup.reason} ${SWAP_OFF_TEXT}`);
+  }
 
   // account section
   const unlocked = !!S.keys;
@@ -411,6 +452,8 @@ function render() {
   }
 
   renderTokens();
+  $('swapToWrap').hidden = !swap || !sup.ok;
+  if (swap && sup.ok) renderToTokens();
   const t = S.token;
   $('amountSym').textContent = t ? t.symbol : '';
   const avail = available();
@@ -435,7 +478,17 @@ function render() {
   // details
   const amt = amountRaw();
   const fee = currentFee();
-  $('details').hidden = swap || !t || !amt;
+  $('details').hidden = (swap && !sup.ok) || !t || !amt;
+  const sq = swap && S.swapQuote && S.swapQuote.key === swapKey() ? S.swapQuote.q : null;
+  for (const id of ['dOutRow', 'dMinRow', 'dImpactRow']) $(id).hidden = !swap;
+  if (swap && t && amt) {
+    const to = S.toToken;
+    $('dOut').textContent = sq ? `≈ ${fmt(sq.outAmount, to)} ${to.symbol}` : (S.swapQuoteErr ? '—' : 'Quoting…');
+    $('dMin').textContent = sq ? `${fmt(sq.minOut, to)} ${to.symbol}` : '—';
+    const impact = sq ? sq.priceImpactPct * 100 : null;
+    $('dImpact').textContent = impact === null ? '—' : impact < 0.01 ? '< 0.01%' : `${impact.toFixed(2)}%`;
+    $('dImpact').classList.toggle('warn', impact !== null && impact > 1);
+  }
   if (t && amt) {
     $('dNet').textContent = CLUSTER === 'devnet' ? 'Solana devnet' : 'Solana mainnet';
     if (S.tab === 'shield') {
@@ -453,8 +506,8 @@ function render() {
 
   if (S.busy) return;
   // CTA
-  const action = { shield: 'Shield', send: 'Send', unshield: 'Unshield' }[S.tab];
-  if (swap) return setCta(CLUSTER === 'mainnet' ? 'Swap is not enabled yet' : 'Swap: mainnet only', { disabled: true });
+  const action = { shield: 'Shield', send: 'Send', unshield: 'Unshield', swap: 'Swap' }[S.tab];
+  if (swap && !sup.ok) return setCta(CLUSTER === 'mainnet' ? 'Swap is not enabled yet' : 'Swap: mainnet only', { disabled: true });
   if (!S.session) return setCta('Connect wallet');
   if (!S.keys) return setCta('Unlock private balance');
   if (S.deployed === false) return setCta(`Pool not live on ${CLUSTER}`, { disabled: true });
@@ -465,10 +518,13 @@ function render() {
   if (toBad) return setCta(S.tab === 'send' ? 'Enter a valid dank… address' : 'Enter a valid Solana address', { disabled: true });
   if (S.tab === 'shield' && isSanctioned(S.session.address)) return setCta('Wallet not allowed', { disabled: true });
   if (S.tab === 'unshield' && isSanctioned(S.to.trim())) return setCta('Destination not allowed', { disabled: true });
+  if (swap && !S.toToken) return setCta('Choose a token to receive', { disabled: true });
+  if (swap && S.swapQuoteErr && fee === null) return setCta('No swap quote', { disabled: true });
+  if (swap && fee === null) return setCta('Getting quote…', { disabled: true, spinner: true });
   if (S.tab !== 'shield' && fee === null) return setCta('Checking fee…', { disabled: true, spinner: true });
   const need = amt + (S.tab === 'shield' ? 0n : fee);
   if (avail !== null && need > avail) return setCta(`Insufficient ${S.tab === 'shield' ? '' : 'private '}${t.symbol}`, { disabled: true });
-  const label = S.tab === 'send' ? `Send ${fmt(amt, t)} ${t.symbol} privately` : `${action} ${fmt(amt, t)} ${t.symbol}`;
+  const label = S.tab === 'send' ? `Send ${fmt(amt, t)} ${t.symbol} privately` : swap ? `Swap ${fmt(amt, t)} ${t.symbol} → ${S.toToken.symbol}` : `${action} ${fmt(amt, t)} ${t.symbol}`;
   setCta(label);
 }
 
@@ -493,6 +549,35 @@ function scheduleQuote() {
     S.quoting = false;
     render();
   }, 350);
+}
+
+/* ---------------- quoting (private swap) ---------------- */
+// Each quote costs the relayer a Jupiter request (keyless: 30/min), so quote only after typing
+// pauses, and reuse a quote for the same amount until it expires.
+let swapTimer = null;
+function scheduleSwapQuote() {
+  clearTimeout(swapTimer);
+  if (S.tab !== 'swap' || !swapSupport().ok || !S.client || !S.token || !S.toToken) return;
+  const amt = amountRaw();
+  if (!amt) return;
+  const key = swapKey();
+  if (S.swapQuote && S.swapQuote.key === key && Date.now() < S.swapQuote.q.expiresAt - 5000) return;
+  S.swapQuoteErr = '';
+  swapTimer = setTimeout(async () => {
+    try {
+      const q = await S.client.quoteSwap({ fromToken: S.token.symbol, toToken: S.toToken.symbol, amount: amt });
+      if (swapKey() === key) {
+        S.swapQuote = { key, q };
+        $('msg').textContent = '';
+      }
+    } catch (e) {
+      if (swapKey() === key) {
+        S.swapQuoteErr = friendly(e);
+        $('msg').textContent = S.swapQuoteErr;
+      }
+    }
+    render();
+  }, 600);
 }
 
 /* ---------------- actions ---------------- */
@@ -565,9 +650,23 @@ async function submit() {
       progress({ label: 'Relaying', pct: 100, detail: '' });
       sig = await c.relay(built);
       toast('ok', 'Unshielded', `${fmt(amt, t)} ${t.symbol} sent to ${shortAddress(S.to.trim())}. Fee ${fmt(built.fee, t)} ${t.symbol}.`, 8000, sig);
+    } else if (S.tab === 'swap') {
+      const to = S.toToken;
+      const sq = S.swapQuote && S.swapQuote.key === swapKey() ? S.swapQuote.q : null;
+      if (!sq || Date.now() > sq.expiresAt) {
+        // The quote the user saw is gone: show a fresh one and let them confirm again.
+        S.swapQuote = null;
+        scheduleSwapQuote();
+        throw new PoolError('QUOTE_EXPIRED', 'The quote expired. Check the new minimum and confirm again.');
+      }
+      built = await c.buildSwap({ fromToken: t.symbol, toToken: to.symbol, amount: amt, quote: sq, onProgress });
+      progress({ label: 'Relaying', pct: 100, detail: '' });
+      sig = await c.relay(built);
+      S.swapQuote = null;
+      toast('ok', 'Swapped privately', `${fmt(amt, t)} ${t.symbol} → at least ${fmt(built.quote.minOut, to)} ${to.symbol}. Fee ${fmt(built.fee, t)} ${t.symbol}. The new ${to.symbol} note appears in your balance once indexed.`, 9000, sig);
     }
     // Public data only (proof, public signals, relay body): used by tests/pool.e2e.mjs.
-    window.__pool.last = { tab: S.tab, sig, proveMs: built.proveMs, proof: built.proof, publicSignals: built.tx.publicSignals, body: built.body || null };
+    window.__pool.last = { tab: S.tab, sig, proveMs: built.proveMs, proof: built.proof, publicSignals: built.tx.publicSignals, body: built.body || null, minOut: built.quote ? String(built.quote.minOut) : null };
     S.amountStr = '';
     $('amountInput').value = '';
   } catch (e) {
@@ -590,12 +689,15 @@ function setTab(tab, focus = false) {
   if (!TABS.includes(tab) || S.busy) return;
   S.tab = tab;
   S.quote = null;
+  S.swapQuoteErr = '';
   $('msg').textContent = '';
   try {
     localStorage.setItem(TAB_KEY, tab);
   } catch (_) {}
+  pickToToken();
   render();
   scheduleQuote();
+  scheduleSwapQuote();
   if (focus) $(`tab-${tab}`).focus();
 }
 
@@ -603,9 +705,20 @@ function pickToken(t) {
   if (!tokenAvailable(t) || S.busy) return;
   S.token = t;
   S.quote = null;
+  S.swapQuoteErr = '';
+  pickToToken();
   normaliseAmount();
   render();
   scheduleQuote();
+  scheduleSwapQuote();
+}
+
+function pickToToken2(t) {
+  if (!tokenAvailable(t) || t === S.token || S.busy) return;
+  S.toToken = t;
+  S.swapQuoteErr = '';
+  render();
+  scheduleSwapQuote();
 }
 
 function normaliseAmount() {
@@ -640,6 +753,7 @@ function setMax() {
   S.amountStr = v > 0n ? formatUnitsPlain(v, t.decimals) : '0';
   $('amountInput').value = S.amountStr;
   render();
+  scheduleSwapQuote();
 }
 
 /* ---------------- modals (same behaviour as the swap page) ---------------- */
@@ -748,8 +862,10 @@ function bind() {
 
   $('amountInput').addEventListener('input', (e) => {
     S.amountStr = e.target.value;
+    S.swapQuoteErr = '';
     normaliseAmount();
     render();
+    scheduleSwapQuote();
   });
   $('maxBtn').addEventListener('click', setMax);
   $('toInput').addEventListener('input', (e) => {
@@ -786,6 +902,7 @@ function bind() {
 
 /* ---------------- boot ---------------- */
 S.token = tokens().find(tokenAvailable) || null;
+pickToToken();
 try {
   const saved = localStorage.getItem(TAB_KEY);
   if (TABS.includes(saved)) S.tab = saved;
@@ -797,4 +914,4 @@ checkPool();
 tryAutoConnect();
 
 // Test hook (tests/pool.e2e.mjs); exposes no keys.
-window.__pool = { get state() { return { tab: S.tab, unlocked: !!S.keys, deployed: S.deployed, priv: { ...S.priv }, busy: S.busy }; }, last: null };
+window.__pool = { get state() { return { tab: S.tab, unlocked: !!S.keys, deployed: S.deployed, priv: { ...S.priv }, busy: S.busy, swap: swapSupport().ok, toToken: S.toToken && S.toToken.symbol }; }, last: null };

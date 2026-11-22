@@ -516,3 +516,227 @@ test('client shield → scan → unshield against mocked relayer/RPC (real Groth
   assert.equal(sig, 'relayedSig');
   assert.equal(client.balance('SOL'), 0n); // spent input hidden until the change note is indexed
 });
+
+/* ---------- private swap (transact_swap) ---------- */
+
+import { transactSwapInstructionData } from '../assets/js/pool/encode.js';
+import * as SW from '../assets/js/pool/swap.js';
+
+const DEV_USDC = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+
+test('transact_swap: fixture swap proof → instruction data and account order of programs/README.md; extDataHash as the program computes it', async () => {
+  const f = fixture('proofs.json');
+  const web3 = loadWeb3();
+  const p = f.proofs.find((x) => x.flow === 'swap');
+  assert.ok(p, 'swap fixture');
+  assert.equal(p.swapMint, USDC);
+  const e = p.extData;
+  const enc = encodeProof(p.snarkjsProof);
+  const swapAmount = BigInt(p.publicSignals[9]);
+  assert.equal(swapAmount, 45_000_000n); // 45 USDC
+  assert.equal(p.publicSignals[8], mintField(USDC).toString());
+  assert.equal(U.bytesToHex(U.fieldToBytes(BigInt(p.publicSignals[10]))), p.swapCommitmentHex);
+  const swapData = await SW.mockSwapData(300_000_000n, 46_000_000n);
+  const args = {
+    ...enc, root: U.hexToBytes(p.rootHex), inputNullifiers: p.inputNullifiersHex.map(U.hexToBytes), outputCommitments: p.outputCommitmentsHex.map(U.hexToBytes),
+    extAmount: BigInt(e.extAmount), fee: BigInt(e.fee), encryptedOutput1: U.hexToBytes(e.encryptedOutput1), encryptedOutput2: U.hexToBytes(e.encryptedOutput2),
+    swapAmount, swapCommitment: U.hexToBytes(p.swapCommitmentHex), encryptedSwapOutput: U.hexToBytes(e.encryptedSwapOutput), swapData,
+  };
+  const data = await transactSwapInstructionData(args);
+  // discriminator, the 10 transact args (606), swap_amount u64, swap_commitment, encrypted_swap_output, Vec<u8> swap_data
+  assert.equal(data.length, 8 + 606 + 8 + 32 + 87 + 4 + swapData.length);
+  assert.deepEqual([...data.slice(0, 8)], [...(await U.sha256(U.utf8('global:transact_swap'))).slice(0, 8)]);
+  const dec = decodeTransactArgs(data);
+  assert.equal(dec.extAmount, -300_000_000n);
+  assert.equal(dec.fee, 1_000_000n);
+  assert.equal(U.bytesToHex(dec.root), p.rootHex);
+  assert.equal(U.bytesToHex(dec.proofA), p.proofA);
+  assert.equal(U.readU64LE(dec.rest, 0), swapAmount);
+  assert.equal(U.bytesToHex(dec.rest.slice(8, 40)), p.swapCommitmentHex);
+  assert.equal(U.bytesToHex(dec.rest.slice(40, 127)), e.encryptedSwapOutput);
+  assert.equal(new DataView(dec.rest.buffer, dec.rest.byteOffset + 127, 4).getUint32(0, true), swapData.length);
+  assert.deepEqual([...dec.rest.slice(131)], [...swapData]);
+
+  // Accounts, programs/README.md order; escrow = extDataHash recipient (#8), relayer_fee_account = relayer (#7).
+  const relayer = e.relayer;
+  const surplus = A.associatedTokenAddress(web3, relayer, USDC).toBase58();
+  const route = (await SW.mockSwapInstruction(web3, { programId: PROGRAM_ID, inputMint: WSOL, outputMint: USDC, amountIn: 300_000_000n, amountOut: 46_000_000n }));
+  const remaining = SW.swapRemainingAccounts(route, { escrow: f.solEscrow, relayer });
+  const keys = A.transactSwapAccounts(web3, {
+    programId: PROGRAM_ID, mint: WSOL, native: true, outputMint: USDC, outputNative: false, signer: relayer,
+    nullifiers: p.inputNullifiersHex.map(U.hexToBytes), relayerFeeAccount: relayer, relayerSurplusAccount: surplus,
+    swapProgram: SW.MOCK_SWAP_PROGRAM_ID, remainingAccounts: remaining,
+  });
+  const k = keys.map((m) => m.pubkey.toBase58());
+  const escrowIn = A.associatedTokenAddress(web3, f.solEscrow, WSOL).toBase58();
+  const escrowOut = A.associatedTokenAddress(web3, f.solEscrow, USDC).toBase58();
+  const expected = [
+    relayer, A.configPda(web3, PROGRAM_ID).toBase58(), f.solPool, A.treePda(web3, PROGRAM_ID, WSOL).toBase58(), A.vaultPda(web3, PROGRAM_ID, WSOL).toBase58(),
+    A.nullifierPda(web3, PROGRAM_ID, U.hexToBytes(p.inputNullifiersHex[0])).toBase58(), A.nullifierPda(web3, PROGRAM_ID, U.hexToBytes(p.inputNullifiersHex[1])).toBase58(),
+    relayer, f.solEscrow, escrowIn, escrowOut, A.poolPda(web3, PROGRAM_ID, USDC).toBase58(), A.treePda(web3, PROGRAM_ID, USDC).toBase58(),
+    A.vaultPda(web3, PROGRAM_ID, USDC).toBase58(), surplus, SW.MOCK_SWAP_PROGRAM_ID, A.TOKEN_PROGRAM_ID, A.SYSTEM_PROGRAM_ID,
+  ];
+  assert.deepEqual(k.slice(0, 18), expected);
+  const writable = keys.slice(0, 18).map((m) => m.isWritable);
+  assert.deepEqual(writable, [true, false, false, true, true, true, true, true, true, true, true, false, true, true, true, false, false, false]);
+  assert.deepEqual(keys.slice(0, 18).map((m) => m.isSigner), [true, ...new Array(17).fill(false)]);
+  // remaining accounts = mock-swap `Swap` order (programs/dankswap-pool/tests/litesvm.rs), escrow not a tx signer
+  const reserve = SW.mockReserveAuthority(web3).toBase58();
+  assert.deepEqual(k.slice(18), [f.solEscrow, escrowIn, A.associatedTokenAddress(web3, reserve, WSOL).toBase58(), A.associatedTokenAddress(web3, reserve, USDC).toBase58(), escrowOut, reserve, A.TOKEN_PROGRAM_ID]);
+  assert.ok(keys.every((m) => !m.isSigner || m.pubkey.toBase58() === relayer));
+  // extDataHash from the instruction's own accounts and data, exactly as transact_swap computes it
+  const edh = await extDataHash({
+    recipient: k[8], relayer: k[7], extAmount: dec.extAmount, fee: dec.fee, encryptedOutput1: dec.encryptedOutput1,
+    encryptedOutput2: dec.encryptedOutput2, encryptedSwapOutput: dec.rest.slice(40, 127),
+  });
+  assert.equal(edh.toString(), p.publicSignals[2]);
+  // the program's 11 public inputs from instruction data + pools: identical to the fixture's
+  const inputs = [
+    dec.root, U.fieldToBytes(publicAmount(dec.extAmount, dec.fee)), U.fieldToBytes(edh), mintFieldBytes(WSOL), ...dec.inputNullifiers, ...dec.outputCommitments,
+    mintFieldBytes(USDC), U.fieldToBytes(swapAmount), dec.rest.slice(8, 40),
+  ].map(U.bytesToHex);
+  assert.deepEqual(inputs, p.publicInputsHex);
+});
+
+test('swap helpers: minOut, slippage, remaining accounts, setup and lookup tables', async () => {
+  const web3 = loadWeb3();
+  assert.equal(SW.swapMinOut(46_000_000n, 50, 0), 45_770_000n);
+  assert.equal(SW.swapMinOut(1_000_000n, 50, 20), 993_000n);
+  assert.throws(() => SW.swapMinOut(1n, 9000, 1000));
+  assert.equal(SW.slippageForMinOut(1_000_000n, 990_000n), 100);
+  assert.equal(SW.slippageForMinOut(1_000_000n, 1_000_001n), 0);
+  const e = SW.swapEscrowAccounts(web3, PROGRAM_ID, WSOL, USDC);
+  assert.equal(e.escrow, '5LXAZN9Ja6xmjjh6hWmaPckciMNDGNc12JGXs9tnQHQz');
+  const relayer = web3.Keypair.generate().publicKey.toBase58();
+  const other = web3.Keypair.generate().publicKey.toBase58();
+  const ix = { programId: SW.JUPITER_V6_PROGRAM_ID, data: 'AQI=', accounts: [
+    { pubkey: A.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: e.escrow, isSigner: true, isWritable: false },
+    { pubkey: e.escrowInput, isSigner: false, isWritable: true },
+  ] };
+  const r = SW.swapRemainingAccounts(ix, { escrow: e.escrow, relayer });
+  assert.deepEqual(r.map((m) => m.pubkey), ix.accounts.map((m) => m.pubkey));
+  assert.equal(r[1].isSigner, false);
+  assert.equal(r[2].isWritable, true);
+  assert.throws(() => SW.swapRemainingAccounts({ ...ix, accounts: [...ix.accounts, { pubkey: other, isSigner: true, isWritable: true }] }, { escrow: e.escrow, relayer }), /signature/);
+  assert.deepEqual([...SW.swapInstructionData(ix)], [1, 2]);
+  assert.deepEqual(SW.buildLookupTableAddresses({ addressesByLookupTableAddress: { A1: [], B2: [] }, addressLookupTableAddresses: ['B2', 'C3'] }), ['A1', 'B2', 'C3']);
+  const ataIx = { programId: A.ASSOCIATED_TOKEN_PROGRAM_ID, data: 'AQ==', accounts: [relayer, e.escrowOutput, e.escrow, USDC, A.SYSTEM_PROGRAM_ID, A.TOKEN_PROGRAM_ID].map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })) };
+  assert.deepEqual(SW.parseSetupInstructions([ataIx], { escrow: e.escrow, relayer }), [{ ata: e.escrowOutput, owner: e.escrow, mint: USDC }]);
+  assert.throws(() => SW.parseSetupInstructions([{ ...ataIx, programId: A.SYSTEM_PROGRAM_ID }], { escrow: e.escrow, relayer }), /Unsupported/);
+  const bad = { ...ataIx, accounts: ataIx.accounts.map((a, i) => (i === 2 ? { ...a, pubkey: other } : a)) };
+  assert.throws(() => SW.parseSetupInstructions([bad], { escrow: e.escrow, relayer }), /owner/);
+});
+
+test('client swap SOL→USDC against mocked relayer: real proof with swap public inputs, swap note discovered in the output pool', { timeout: 600_000 }, async () => {
+  const wasm = join(ROOT, 'assets', 'zk', 'transaction.wasm');
+  const zkey = join(ROOT, 'assets', 'zk', 'transaction_final.zkey');
+  if (!existsSync(wasm) || !existsSync(zkey)) assert.fail('fixtures missing: assets/zk/transaction.wasm and transaction_final.zkey');
+  const snarkjs = await snarkjsModule();
+  if (!snarkjs) assert.fail('snarkjs missing: run `cd circuits && npm install`');
+  const web3 = loadWeb3();
+  const { proveInProcess } = await import('../assets/js/pool/prover.js');
+  const prover = { prove: (input) => proveInProcess(snarkjs, input, wasm, zkey) };
+  const relayerKp = web3.Keypair.generate();
+  const keys = await deriveKeys(new Uint8Array(64).fill(44));
+
+  const pools = { [WSOL]: { leaves: [], tree: new MerkleTree(20) }, [DEV_USDC]: { leaves: [], tree: new MerkleTree(20) } };
+  const add = (mint, c, enc) => {
+    const P = pools[mint];
+    P.leaves.push({ index: P.leaves.length, commitment: U.bytesToHex(U.fieldToBytes(c)), encryptedOutput: U.bytesToBase64(enc) });
+    P.tree.insert(c);
+  };
+  // A 1 SOL note for this account already in the SOL pool (as if shielded).
+  const dep = await buildTransaction({
+    tree: pools[WSOL].tree, mintField: mintField(WSOL), outputs: [new Note({ amount: 1_000_000_000n, pubKey: keys.pubKey, encPublic: keys.encPublic, mint: WSOL })],
+    extData: { recipient: relayerKp.publicKey.toBase58(), relayer: relayerKp.publicKey.toBase58(), extAmount: 1_000_000_000n, fee: 0n },
+  });
+  add(WSOL, dep.commitments[0], dep.extData.encryptedOutput1);
+  add(WSOL, dep.commitments[1], dep.extData.encryptedOutput2);
+
+  const quotes = [];
+  const relayed = [];
+  const info = {
+    relayer: relayerKp.publicKey.toBase58(), feeBps: 30, minFeeLamports: { SOL: 3_000_000, USDC: 500_000, USDT: 500_000 }, createAtaFee: { USDC: 500_000, USDT: 500_000 },
+    cluster: 'devnet', programId: PROGRAM_ID, swap: { enabled: true, route: 'mock', program: SW.MOCK_SWAP_PROGRAM_ID, slippageBps: 50, swapFeeBps: 0, quoteTtlMs: 60_000 },
+  };
+  const fetchMock = async (url, opts = {}) => {
+    const u = new URL(url);
+    const json = (o, status = 200) => ({ ok: status < 400, status, json: async () => o });
+    if (u.pathname === '/info') return json(info);
+    if (u.pathname === '/swap/quote') {
+      quotes.push(Object.fromEntries(u.searchParams));
+      const amount = BigInt(u.searchParams.get('amount'));
+      const outAmount = (amount * 150n) / 1000n; // 150 USDC per SOL, 9 → 6 decimals
+      return json({ inputMint: u.searchParams.get('inputMint'), outputMint: u.searchParams.get('outputMint'), amount: amount.toString(), outAmount: outAmount.toString(), otherAmountThreshold: outAmount.toString(), minOut: SW.swapMinOut(outAmount, 50).toString(), feeInInputMint: '3000000', slippageBps: 50, swapFeeBps: 0, priceImpactPct: '0.0012', route: 'mock', expiresAt: Date.now() + 60_000 });
+    }
+    if (u.pathname === '/commitments') {
+      const P = pools[u.searchParams.get('pool')];
+      const from = Number(u.searchParams.get('from'));
+      return json({ items: P.leaves.slice(from), nextIndex: P.leaves.length, root: U.bytesToHex(U.fieldToBytes(P.tree.root())) });
+    }
+    if (u.pathname === '/relay') {
+      relayed.push(JSON.parse(opts.body));
+      return json({ signature: 'swapSig', outAmount: '45000000' });
+    }
+    const body = JSON.parse(opts.body);
+    const r = (result) => json({ jsonrpc: '2.0', id: body.id, result });
+    if (body.method === 'getMultipleAccounts') return r({ context: { slot: 1 }, value: body.params[0].map(() => null) });
+    throw new Error('unexpected ' + url);
+  };
+  const config = { ...POOL_CONFIG, RELAYER_URL: 'https://relayer.test', RPC: { devnet: ['https://rpc.test'] } };
+  const client = new PoolClient({ web3, config, prover, fetch: fetchMock });
+  client.setKeys(keys);
+  assert.deepEqual(client.swapSupport(null).code, 'SWAP_DEVNET');
+  assert.equal(client.swapSupport(info).ok, true);
+  assert.equal(client.swapSupport({ ...info, swap: { ...info.swap, route: 'jupiter' } }).ok, false); // Jupiter is not on devnet
+
+  const q = await client.quoteSwap({ fromToken: 'SOL', toToken: 'USDC', amount: 300_000_000n });
+  assert.equal(q.outAmount, 45_000_000n);
+  assert.equal(q.minOut, 44_775_000n);
+  assert.equal(q.fee, 3_000_000n);
+  assert.deepEqual(quotes[0], { inputMint: WSOL, outputMint: DEV_USDC, amount: '300000000' });
+  await assert.rejects(client.quoteSwap({ fromToken: 'SOL', toToken: 'SOL', amount: 1n }), (e) => e.code === 'SWAP_SAME');
+
+  const { signature, built } = await client.swap({ fromToken: 'SOL', toToken: 'USDC', amount: 300_000_000n, quote: q });
+  assert.equal(signature, 'swapSig');
+  const body = relayed[0];
+  assert.equal(body.instruction, 'transact_swap');
+  assert.equal(body.pool, WSOL);
+  assert.equal(body.args.outputPool, DEV_USDC);
+  assert.equal(body.args.swapAmount, '44775000');
+  assert.equal(body.args.swapData, '');
+  const escrow = A.escrowPda(web3, PROGRAM_ID, A.poolPda(web3, PROGRAM_ID, WSOL)).toBase58();
+  assert.equal(body.extData.recipient, escrow);
+  assert.equal(body.extData.relayer, relayerKp.publicKey.toBase58());
+  assert.equal(body.extData.extAmount, '-300000000');
+  assert.equal(body.extData.fee, '3000000');
+  const parsed = parseRelayRequest(JSON.parse(JSON.stringify(body)));
+  const ps = built.tx.publicSignals;
+  assert.equal(ps[0], pools[WSOL].tree.root().toString());
+  assert.equal(ps[1], publicAmount(-300_000_000n, 3_000_000n).toString());
+  assert.equal(ps[2], (await extDataHash(parsed.extData)).toString(), 'extDataHash binds escrow, relayer and encryptedSwapOutput');
+  assert.equal(ps[3], mintField(WSOL).toString());
+  assert.equal(ps[8], mintField(DEV_USDC).toString());
+  assert.equal(U.bytesToHex(parsed.args.swapMintField), U.bytesToHex(mintFieldBytes(DEV_USDC)));
+  assert.equal(ps[9], '44775000');
+  assert.equal(ps[10], U.bytesToBigInt(parsed.args.swapCommitment).toString());
+  // the relayer's instruction from this body carries exactly the proven public inputs
+  const data = await transactSwapInstructionData({ ...argsFromRelay(parsed), swapData: new Uint8Array(0) });
+  const dec = decodeTransactArgs(data);
+  assert.equal(U.readU64LE(dec.rest, 0), 44_775_000n);
+  assert.equal(U.bytesToHex(dec.rest.slice(8, 40)), U.bytesToHex(U.fieldToBytes(BigInt(ps[10]))));
+  const vk = JSON.parse(readFileSync(join(ROOT, 'assets', 'zk', 'verification_key.json'), 'utf8'));
+  assert.ok(await snarkjs.groth16.verify(vk, ps, built.proof), 'swap proof verifies');
+  assert.equal(client.balance('SOL'), 0n); // the 1 SOL note is pending
+
+  // The program appends the change outputs to the SOL tree and swapCommitment to the USDC tree.
+  add(WSOL, BigInt(ps[6]), parsed.extData.encryptedOutput1);
+  add(WSOL, BigInt(ps[7]), parsed.extData.encryptedOutput2);
+  add(DEV_USDC, BigInt(ps[10]), parsed.extData.encryptedSwapOutput);
+  const usdc = await client.refresh('USDC');
+  assert.equal(usdc.balance, 44_775_000n);
+  assert.equal(usdc.notes[0].index, 0);
+  const sol = await client.refresh('SOL');
+  assert.equal(sol.balance, 697_000_000n); // change; the spent input stays hidden
+});

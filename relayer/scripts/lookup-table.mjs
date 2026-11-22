@@ -16,13 +16,17 @@ async function main() {
   const config = loadConfig();
   const payer = web3.Keypair.fromSecretKey(parseKeypairSecret(process.env.RELAYER_KEYPAIR));
   const connection = new web3.Connection(config.rpcUrl, 'confirmed');
-  const addresses = lookupTableAddresses(web3, config).map((a) => new web3.PublicKey(a));
+  const addresses = lookupTableAddresses(web3, config, payer.publicKey.toBase58()).map((a) => new web3.PublicKey(a));
   const slot = await connection.getSlot('finalized');
   const [createIx, table] = web3.AddressLookupTableProgram.createLookupTable({ authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot });
-  const extendIx = web3.AddressLookupTableProgram.extendLookupTable({ lookupTable: table, authority: payer.publicKey, payer: payer.publicKey, addresses });
-  const tx = new web3.Transaction().add(createIx, extendIx);
-  const sig = await web3.sendAndConfirmTransaction(connection, tx, [payer], { commitment: 'confirmed' });
-  console.log(`Created lookup table ${table.toBase58()} with ${addresses.length} addresses (tx ${sig}).`);
+  // One extend instruction fits about 20 addresses in a transaction; swap support adds escrows
+  // and their token accounts, so extend in chunks.
+  for (let i = 0; i < addresses.length; i += 20) {
+    const extendIx = web3.AddressLookupTableProgram.extendLookupTable({ lookupTable: table, authority: payer.publicKey, payer: payer.publicKey, addresses: addresses.slice(i, i + 20) });
+    const tx = i === 0 ? new web3.Transaction().add(createIx, extendIx) : new web3.Transaction().add(extendIx);
+    const sig = await web3.sendAndConfirmTransaction(connection, tx, [payer], { commitment: 'confirmed' });
+    console.log(`${i === 0 ? 'Created' : 'Extended'} lookup table ${table.toBase58()} (+${Math.min(20, addresses.length - i)} addresses, tx ${sig}).`);
+  }
   console.log(`Set RELAYER_LOOKUP_TABLE=${table.toBase58()} and restart the relayer (tables become usable one slot after extension).`);
 }
 
