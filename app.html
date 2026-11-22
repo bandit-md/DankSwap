@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Swap · DankSwap</title>
+  <meta name="description" content="Swap SOL, USDC and USDT on Solana at the best aggregated price. Non-custodial: your wallet signs every trade.">
+  <meta name="theme-color" content="#08090a">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://api.jup.ag">
+  <link rel="stylesheet" href="assets/css/site.css">
+  <script type="module" src="assets/js/app.js"></script>
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+
+  <header class="wrap nav">
+    <a class="brand" href="index.html" aria-label="DankSwap home">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="#0b0d05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5h9.5L10 3"/><path d="M13 10.5H3.5L6 13"/></svg></span>
+      DankSwap
+    </a>
+    <button class="btn" id="walletBtn" type="button">Connect wallet</button>
+  </header>
+
+  <main class="app-main">
+    <div class="app-col">
+      <div class="app-head">
+        <div>
+          <h1>Swap</h1>
+          <p>SOL, USDC and USDT on Solana. Best price across every major DEX.</p>
+        </div>
+        <button class="icon-btn" id="settingsBtn" type="button" aria-label="Slippage settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        </button>
+      </div>
+
+      <form class="panel" id="swapForm" autocomplete="off" novalidate>
+        <div class="box">
+          <div class="box-top">
+            <label class="box-label" for="inAmount">You pay</label>
+            <div class="bal" id="inBalWrap" hidden>
+              <span id="inBal">—</span>
+              <button class="mini" type="button" id="halfBtn">Half</button>
+              <button class="mini" type="button" id="maxBtn">Max</button>
+            </div>
+          </div>
+          <div class="box-mid">
+            <input class="amount" id="inAmount" inputmode="decimal" placeholder="0.00" aria-label="Amount to pay" spellcheck="false" maxlength="24">
+            <button class="token-btn" type="button" id="inTokenBtn" aria-label="Choose token to pay"></button>
+          </div>
+          <div class="box-bot">
+            <span class="pill">Solana</span>
+            <span class="usd" id="inUsd">$0.00</span>
+          </div>
+        </div>
+
+        <div class="flip-wrap">
+          <button class="flip" type="button" id="flipBtn" aria-label="Switch tokens">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4v14M4 14l4 4 4-4"/><path d="M16 20V6M12 10l4-4 4 4"/></svg>
+          </button>
+        </div>
+
+        <div class="box">
+          <div class="box-top">
+            <span class="box-label">You receive</span>
+            <div class="bal" id="outBalWrap" hidden><span id="outBal">—</span></div>
+          </div>
+          <div class="box-mid">
+            <input class="amount" id="outAmount" placeholder="0.00" readonly tabindex="-1" aria-label="Estimated amount to receive">
+            <button class="token-btn" type="button" id="outTokenBtn" aria-label="Choose token to receive"></button>
+          </div>
+          <div class="box-bot">
+            <span class="pill">Solana</span>
+            <span class="usd" id="outUsd">$0.00</span>
+          </div>
+        </div>
+
+        <label class="recv-toggle"><input type="checkbox" id="recvToggle"> Send to a different address</label>
+        <div class="recv" id="recvWrap" hidden>
+          <input id="recvInput" placeholder="Recipient Solana address" spellcheck="false" aria-label="Recipient Solana address">
+          <p class="hint">Tokens go straight to this wallet. Double-check it: transfers cannot be reversed. This is a normal on-chain transfer and is not private.</p>
+        </div>
+
+        <div class="details" id="details" hidden>
+          <div class="kv"><span>Rate</span><span class="v" id="dRate">—</span></div>
+          <div class="kv"><span>Minimum received</span><span class="v" id="dMin">—</span></div>
+          <div class="kv"><span>Price impact</span><span class="v" id="dImpact">—</span></div>
+          <div class="kv"><span>Fee</span><span class="v" id="dFee">—</span></div>
+          <div class="kv"><span>Network fee</span><span class="v" id="dNet">—</span></div>
+          <div class="kv"><span>Slippage</span><span class="v" id="dSlip">—</span></div>
+          <div class="kv"><span>Route</span><span class="v" id="dRoute">—</span></div>
+        </div>
+
+        <button class="cta" id="cta" type="submit" disabled>Enter an amount</button>
+        <p class="msg" id="msg" role="status" aria-live="polite"></p>
+      </form>
+
+      <p class="app-foot">
+        Non-custodial. Your wallet signs every trade; DankSwap never holds your funds.
+        Routing and execution by Jupiter. Prices move: you get at least the minimum shown or the swap does not happen.
+        <a href="risks.html">Risks</a>
+      </p>
+
+      <section class="activity" aria-labelledby="actTitle">
+        <h2 id="actTitle">Recent activity <button type="button" id="clearAct" hidden>Clear</button></h2>
+        <div id="actBody"><div class="act-empty">Your swaps on this device will show here.</div></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Wallet picker -->
+  <div class="modal-bg" id="walletModal" role="dialog" aria-modal="true" aria-labelledby="walletTitle">
+    <div class="modal">
+      <div class="modal-head"><h2 id="walletTitle">Connect a wallet</h2><button class="modal-close" type="button" data-close aria-label="Close">×</button></div>
+      <div class="list" id="walletList"></div>
+    </div>
+  </div>
+
+  <!-- Account menu -->
+  <div class="modal-bg" id="accountModal" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
+    <div class="modal">
+      <div class="modal-head"><h2 id="accountTitle">Wallet</h2><button class="modal-close" type="button" data-close aria-label="Close">×</button></div>
+      <div class="list">
+        <div class="list-item"><div class="grow"><span id="accName">—</span><small class="mono" id="accAddr">—</small></div></div>
+        <button class="list-item" type="button" id="copyAddr"><span class="grow">Copy address</span></button>
+        <a class="list-item" id="viewAddr" target="_blank" rel="noopener"><span class="grow">View on Solscan</span></a>
+        <button class="list-item" type="button" id="disconnectBtn"><span class="grow">Disconnect</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Token picker -->
+  <div class="modal-bg" id="tokenModal" role="dialog" aria-modal="true" aria-labelledby="tokenTitle">
+    <div class="modal">
+      <div class="modal-head"><h2 id="tokenTitle">Select a token</h2><button class="modal-close" type="button" data-close aria-label="Close">×</button></div>
+      <div class="list" id="tokenList" role="listbox"></div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="modal-bg" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal">
+      <div class="modal-head"><h2 id="settingsTitle">Slippage tolerance</h2><button class="modal-close" type="button" data-close aria-label="Close">×</button></div>
+      <p>Auto lets Jupiter pick a tolerance from live market conditions. Your trade fails, and no funds move, if the price moves further than this.</p>
+      <div class="slip-opts" id="slipOpts">
+        <button type="button" data-bps="auto">Auto</button>
+        <button type="button" data-bps="10">0.1%</button>
+        <button type="button" data-bps="50">0.5%</button>
+        <button type="button" data-bps="100">1%</button>
+      </div>
+      <div class="slip-custom">
+        <input id="slipCustom" inputmode="decimal" placeholder="Custom %" aria-label="Custom slippage percent">
+        <span class="muted">%</span>
+      </div>
+      <p class="msg" id="slipMsg"></p>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>
