@@ -8,7 +8,7 @@ import { decodeAddress } from './keys.js';
 import { buildTransaction, instructionArgs, checkPublicSignals } from './transaction.js';
 import { encodeProof, relayRequestBody } from './encode.js';
 import {
-  associatedTokenAddress, computeUnitLimitInstruction, configPda, nullifierPda, transactInstruction,
+  associatedTokenAddress, createAtaIdempotentInstruction, computeUnitLimitInstruction, configPda, nullifierPda, transactInstruction,
 } from './accounts.js';
 import { swapEscrowAccounts } from './swap.js';
 import { requiredFee } from './fees.js';
@@ -364,6 +364,62 @@ export class PoolClient {
     const { args, ms, proof } = await this._prove(tx, onProgress);
     const body = relayRequestBody({ instruction: 'transact', pool: t.mint, args, extData: tx.extData, recipientOwner: t.native ? undefined : recipientWallet });
     return { body, fee: q.fee, needsAta: q.needsAta, inputs: ins, tx, proof, proveMs: ms };
+  }
+
+  /**
+   * Unshield without a relayer: the connected wallet (`payer`) signs and pays the network fee and
+   * nullifier rent itself. No relayer fee, and it works when no relayer is reachable or a relayer
+   * refuses. Privacy cost: the paying wallet appears in the withdrawal transaction, linking it to
+   * the destination. Returns { preBytes (optional, creates the destination token account),
+   * bytes, lastValidBlockHeight, ... } as unsigned v0 transactions for the wallet.
+   */
+  async buildUnshieldSelf({ symbol, amount, recipientWallet, payer, onProgress }) {
+    this.assertClusterAllowed();
+    this._requireKeys();
+    if (!isSolanaAddress(recipientWallet)) throw new PoolError('ADDRESS', 'Enter a valid Solana address');
+    if (isSanctioned(recipientWallet)) throw new PoolError('SANCTIONED', 'This address is on a sanctions list. The pool cannot send to it.');
+    const amt = BigInt(amount);
+    if (amt <= 0n) throw new PoolError('AMOUNT', 'Enter an amount');
+    const t = this.token(symbol);
+    const web3 = this.web3;
+    let recipient = recipientWallet;
+    let needsAta = false;
+    if (t.native) {
+      if (amt < 890_880n && !(await this._accountExists(recipientWallet))) {
+        throw new PoolError('RENT', 'This address has never been used. Send at least 0.00089088 SOL to it, or the network rejects the transfer.');
+      }
+    } else {
+      recipient = associatedTokenAddress(web3, recipientWallet, t.mint).toBase58();
+      needsAta = !(await this._accountExists(recipient));
+    }
+    const ins = await this._spendPlan(symbol, amt);
+    const change = ins.reduce((s, n) => s + n.amount, 0n) - amt;
+    const outputs = change > 0n ? [new Note({ amount: change, pubKey: this.keys.pubKey, encPublic: this.keys.encPublic, mint: t.mint })] : [];
+    const st = this._st(t.mint);
+    // fee 0, so the relayer account is never paid; it is the recipient (one account fewer).
+    const tx = await buildTransaction({
+      tree: st.tree, mintField: mintField(t.mint), inputs: ins, outputs,
+      extData: { recipient, relayer: recipient, extAmount: -amt, fee: 0n },
+    });
+    const { args, ms, proof } = await this._prove(tx, onProgress);
+    const ix = await transactInstruction(web3, {
+      programId: this.config.POOL_PROGRAM_ID, mint: t.mint, native: !!t.native, signer: payer,
+      nullifiers: args.inputNullifiers, recipient, relayerFeeAccount: recipient, signerTokenAccount: null,
+    }, args);
+    const bh = await this.rpc.call('getLatestBlockhash', [{ commitment: 'confirmed' }]);
+    const compile = (instructions) => new web3.VersionedTransaction(new web3.TransactionMessage({
+      payerKey: new web3.PublicKey(payer), recentBlockhash: bh.value.blockhash, instructions,
+    }).compileToV0Message()).serialize();
+    // Creating the token account does not fit next to the proof, so it is its own transaction.
+    const preBytes = needsAta ? compile([createAtaIdempotentInstruction(web3, payer, recipient, recipientWallet, t.mint)]) : null;
+    const bytes = compile([computeUnitLimitInstruction(web3, this.config.COMPUTE_UNITS), ix]);
+    return { preBytes, bytes, lastValidBlockHeight: bh.value.lastValidBlockHeight, needsAta, inputs: ins, tx, args, proof, proveMs: ms, fee: 0n };
+  }
+
+  /** Mark notes spent locally after a self-submitted transaction lands. */
+  markPending(symbol, inputs) {
+    const st = this._st(this.token(symbol).mint);
+    for (const n of inputs || []) if (n.index !== null) st.pending.add(n.index);
   }
 
   /** Private send to a dank… address. The recipient sees the note; nobody else sees the amount. */

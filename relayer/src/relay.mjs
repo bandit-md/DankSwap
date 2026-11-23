@@ -3,7 +3,7 @@
 // funds: the pool pays the fee to its fee account only when the proof verifies on-chain.
 import { parseRelayRequest, argsFromRelay } from '../../assets/js/pool/encode.js';
 import {
-  associatedTokenAddress, computeUnitLimitInstruction, transactInstruction, transactSwapInstruction, toBuffer, configPda, poolPda,
+  associatedTokenAddress, createAtaIdempotentInstruction, computeUnitLimitInstruction, transactInstruction, transactSwapInstruction, toBuffer, configPda, poolPda,
   treePda, vaultAddress, escrowPda, ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID,
 } from '../../assets/js/pool/accounts.js';
 import { requiredFee } from '../../assets/js/pool/fees.js';
@@ -24,15 +24,7 @@ export class RelayError extends Error {
   }
 }
 
-/** createAssociatedTokenAccountIdempotent (ATA program instruction 1). */
-export function createAtaIdempotentInstruction(web3, payer, ata, owner, mint) {
-  const k = (pubkey, isSigner, isWritable) => ({ pubkey: new web3.PublicKey(pubkey), isSigner, isWritable });
-  return new web3.TransactionInstruction({
-    programId: new web3.PublicKey(ASSOCIATED_TOKEN_PROGRAM_ID),
-    keys: [k(payer, true, true), k(ata, false, true), k(owner, false, false), k(mint, false, false), k(SYSTEM_PROGRAM_ID, false, false), k(TOKEN_PROGRAM_ID, false, false)],
-    data: toBuffer(web3, Uint8Array.of(1)),
-  });
-}
+export { createAtaIdempotentInstruction };
 
 function setComputeUnitPrice(web3, microLamports) {
   const data = new Uint8Array(9);

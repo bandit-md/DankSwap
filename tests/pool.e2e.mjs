@@ -360,6 +360,34 @@ async function main() {
   await page.click('#refreshBtn');
   await page.waitForFunction(() => document.querySelector('#balList li[data-symbol="USDC"] .v').textContent === '14.925 USDC');
 
+  // 9b. Unshield without a relayer: the wallet signs and pays, fee 0, the relayer is not contacted.
+  step('9b. Self-relay unshield 5 USDC');
+  const signedBefore = await page.evaluate(() => window.__signed.length);
+  await page.click('#tab-unshield');
+  await page.click('#tokenSeg [role="radio"]:has-text("USDC")');
+  await page.check('#selfRelay');
+  assert.equal(await page.isVisible('#selfRelayHint'), true);
+  assert.match(await page.textContent('#selfRelayHint'), /linking it to the destination/);
+  await page.fill('#toInput', RECIPIENT);
+  await page.fill('#amountInput', '5');
+  await page.waitForFunction(() => document.querySelector('#cta').textContent === 'Unshield 5 USDC');
+  assert.equal(await page.textContent('#dFeeLabel'), 'Paid by your wallet');
+  assert.equal(await page.textContent('#dTotal'), '5 USDC');
+  await cta.click();
+  await page.waitForSelector('.toast.ok >> text=Your wallet paid the network fee', { timeout: 300_000 });
+  assert.equal(relayed.length, 2, 'self-relay must not call the relayer');
+  const signedNow = await page.evaluate(() => window.__signed);
+  assert.ok(signedNow.length - signedBefore >= 1);
+  const selfTx = web3.VersionedTransaction.deserialize(Uint8Array.from(signedNow[signedNow.length - 1]));
+  const selfKeys = selfTx.message.staticAccountKeys.map((k) => k.toBase58());
+  assert.equal(selfKeys[0], OWNER, 'the connected wallet pays');
+  assert.ok(!selfKeys.includes(RELAYER), 'no relayer account involved');
+  const selfLast = await page.evaluate(() => window.__pool.last);
+  assert.equal(selfLast.publicSignals[1], (FIELD_SIZE - 5_000_000n).toString(), 'publicAmount = -5 USDC, fee 0');
+  assert.equal(selfLast.publicSignals[3], mintField(DEV_USDC).toString());
+  assert.ok(await snarkjs.groth16.verify(vk, selfLast.publicSignals, selfLast.proof), 'self-relay proof verifies');
+  await page.uncheck('#selfRelay');
+
   // 10. Phone layout: no sideways scroll, 16px inputs, banner visible
   step('10. Phone layout: no sideways scroll, 16px i');
   const m = await browser.newContext({ ...devices['iPhone 13'] });

@@ -399,3 +399,6 @@ small.warn { color: var(--warn); }
 .pv-swapto .box-label { display: block; margin: 0 2px 8px; }
 .pv-swapto .pv-tokens { margin-bottom: 0; }
 .details .v.warn { color: var(--warn); }
+
+/* Self-relay warning (private pool) */
+.pv-warnhint { color: var(--warn); }

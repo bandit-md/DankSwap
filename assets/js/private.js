@@ -48,6 +48,7 @@ const S = {
   privErr: {},
   wallet: {}, // symbol → bigint | null (public wallet balance, for Shield)
   quote: null, // { key, fee, needsAta } for unshield
+  selfRelay: false, // unshield paid by the connected wallet, no relayer
   toToken: null, // swap output token
   swapQuote: null, // { key, q } from GET /swap/quote
   swapQuoteErr: '',
@@ -382,9 +383,12 @@ function amountRaw() {
 function currentFee() {
   const t = S.token;
   const amt = amountRaw();
-  if (!S.info || !t) return null;
+  if (!t) return null;
+  if (S.tab === 'unshield' && S.selfRelay) return 0n;
+  if (!S.info) return null;
   if (S.tab === 'send') return requiredFee(S.info, t.symbol, 0n);
   if (S.tab === 'swap') return S.swapQuote && S.swapQuote.key === swapKey() ? S.swapQuote.q.fee : null;
+  if (S.tab === 'unshield' && S.selfRelay) return 0n;
   if (S.tab === 'unshield') {
     if (t.native || (S.quote && S.quote.key === quoteKey())) {
       return requiredFee(S.info, t.symbol, amt || 0n, t.native ? false : S.quote.needsAta);
@@ -491,7 +495,12 @@ function render() {
   }
   if (t && amt) {
     $('dNet').textContent = CLUSTER === 'devnet' ? 'Solana devnet' : 'Solana mainnet';
-    if (S.tab === 'shield') {
+    if (S.tab === 'unshield' && S.selfRelay) {
+      $('dFeeLabel').textContent = 'Paid by your wallet';
+      $('dFee').textContent = `≈ ${formatUnits(NULLIFIER_RENT_LAMPORTS + 10_000n, 9, 6)} SOL`;
+      $('dTotalLabel').textContent = 'Leaves your private balance';
+      $('dTotal').textContent = `${fmt(amt, t)} ${t.symbol}`;
+    } else if (S.tab === 'shield') {
       $('dFeeLabel').textContent = 'Network fee + account rent';
       $('dFee').textContent = `≈ ${formatUnits(NULLIFIER_RENT_LAMPORTS + 10_000n, 9, 6)} SOL`;
       $('dTotalLabel').textContent = 'Leaves your wallet';
@@ -512,7 +521,7 @@ function render() {
   if (!S.keys) return setCta('Unlock private balance');
   if (S.deployed === false) return setCta(`Pool not live on ${CLUSTER}`, { disabled: true });
   if (!t || !tokenAvailable(t)) return setCta('Choose a token', { disabled: true });
-  if (S.tab !== 'shield' && !S.info) return setCta('Relayer unavailable', { disabled: true });
+  if (S.tab !== 'shield' && !S.info && !(S.tab === 'unshield' && S.selfRelay)) return setCta('Relayer unavailable', { disabled: true });
   if (!amt) return setCta('Enter an amount', { disabled: true });
   if (needsTo && !S.to.trim()) return setCta(S.tab === 'send' ? 'Enter a shielded address' : 'Enter a destination', { disabled: true });
   if (toBad) return setCta(S.tab === 'send' ? 'Enter a valid dank… address' : 'Enter a valid Solana address', { disabled: true });
@@ -645,6 +654,18 @@ async function submit() {
       progress({ label: 'Relaying', pct: 100, detail: '' });
       sig = await c.relay(built);
       toast('ok', 'Sent privately', `${fmt(amt, t)} ${t.symbol} sent. Fee ${fmt(built.fee, t)} ${t.symbol}.`, 8000, sig);
+    } else if (S.tab === 'unshield' && S.selfRelay) {
+      built = await c.buildUnshieldSelf({ symbol: t.symbol, amount: amt, recipientWallet: S.to.trim(), payer: S.session.address, onProgress });
+      if (built.preBytes) {
+        progress({ label: 'Create the destination token account', pct: 100, detail: 'Confirm in your wallet (1 of 2)' });
+        setCta('Check your wallet…', { disabled: true, spinner: true });
+        await signAndSend(built.preBytes, built.lastValidBlockHeight);
+      }
+      progress({ label: 'Confirm in your wallet', pct: 100, detail: built.preBytes ? '2 of 2' : '' });
+      setCta('Check your wallet…', { disabled: true, spinner: true });
+      sig = await signAndSend(built.bytes, built.lastValidBlockHeight);
+      c.markPending(t.symbol, built.inputs);
+      toast('ok', 'Unshielded', `${fmt(amt, t)} ${t.symbol} sent to ${shortAddress(S.to.trim())}. Your wallet paid the network fee.`, 8000, sig);
     } else if (S.tab === 'unshield') {
       built = await c.buildUnshield({ symbol: t.symbol, amount: amt, recipientWallet: S.to.trim(), onProgress });
       progress({ label: 'Relaying', pct: 100, detail: '' });
@@ -672,7 +693,8 @@ async function submit() {
   } catch (e) {
     if (isUserReject(e)) toast('err', 'Cancelled', 'Nothing was sent.');
     else {
-      $('msg').textContent = friendly(e);
+      $('msg').textContent = friendly(e) + (S.tab === 'unshield' && !S.selfRelay && e instanceof PoolError && /^RELAYER/.test(e.code)
+        ? ' You can also tick "Pay the network fee from my wallet" to withdraw without a relayer.' : '');
       toast('err', 'Not completed', friendly(e));
     }
   } finally {
@@ -737,7 +759,7 @@ function setMax() {
   const avail = available();
   if (!t || avail === null) return;
   let v = avail;
-  if (S.tab !== 'shield' && S.info) {
+  if (S.tab !== 'shield' && S.info && !(S.tab === 'unshield' && S.selfRelay)) {
     const needsAta = S.tab === 'unshield' && !t.native && S.quote ? S.quote.needsAta : false;
     // largest amount whose fee still fits
     let lo = 0n;
@@ -868,6 +890,11 @@ function bind() {
     scheduleSwapQuote();
   });
   $('maxBtn').addEventListener('click', setMax);
+  $('selfRelay').addEventListener('change', (e) => {
+    S.selfRelay = e.target.checked;
+    $('selfRelayHint').hidden = !S.selfRelay;
+    render();
+  });
   $('toInput').addEventListener('input', (e) => {
     S.to = e.target.value;
     render();

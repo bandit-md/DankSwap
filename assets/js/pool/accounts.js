@@ -73,6 +73,16 @@ export function computeUnitLimitInstruction(web3, units) {
   return new web3.TransactionInstruction({ programId: pk(web3, COMPUTE_BUDGET_PROGRAM_ID), keys: [], data: toBuffer(web3, data) });
 }
 
+/** createAssociatedTokenAccountIdempotent (ATA program instruction 1). */
+export function createAtaIdempotentInstruction(web3, payer, ata, owner, mint) {
+  const k = (pubkey, isSigner, isWritable) => ({ pubkey: new web3.PublicKey(pubkey), isSigner, isWritable });
+  return new web3.TransactionInstruction({
+    programId: new web3.PublicKey(ASSOCIATED_TOKEN_PROGRAM_ID),
+    keys: [k(payer, true, true), k(ata, false, true), k(owner, false, false), k(mint, false, false), k(SYSTEM_PROGRAM_ID, false, false), k(TOKEN_PROGRAM_ID, false, false)],
+    data: toBuffer(web3, Uint8Array.of(1)),
+  });
+}
+
 export function toBuffer(web3, bytes) {
   // web3.js 1.x wants a Buffer. The IIFE build does not export its Buffer polyfill, but
   // PublicKey.toBuffer() returns one, which gives us the class.

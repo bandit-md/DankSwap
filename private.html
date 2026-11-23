@@ -101,7 +101,11 @@
         <form class="pv-form" id="actionForm" autocomplete="off" novalidate>
           <div role="tabpanel" id="panel-shield" aria-labelledby="tab-shield"><p class="pv-desc">Move tokens from your wallet into your private balance. Your wallet signs and pays the network fee; the deposit itself is public, what you do next is not.</p></div>
           <div role="tabpanel" id="panel-send" aria-labelledby="tab-send" hidden><p class="pv-desc">Send from your private balance to another shielded address. Nobody else sees the amount or the recipient. A relayer submits it, so your wallet never appears.</p></div>
-          <div role="tabpanel" id="panel-unshield" aria-labelledby="tab-unshield" hidden><p class="pv-desc">Withdraw from your private balance to any Solana address. A relayer submits it and takes the fee shown, so the destination is not linked to your wallet.</p></div>
+          <div role="tabpanel" id="panel-unshield" aria-labelledby="tab-unshield" hidden>
+            <p class="pv-desc">Withdraw from your private balance to any Solana address. A relayer submits it and takes the fee shown, so the destination is not linked to your wallet.</p>
+            <label class="recv-toggle"><input type="checkbox" id="selfRelay"> Pay the network fee from my wallet instead (no relayer)</label>
+            <p class="hint pv-warnhint" id="selfRelayHint" hidden>Use this only if the relayer is unavailable. Your connected wallet signs and pays about 0.002 SOL, and it becomes visible in the withdrawal transaction, linking it to the destination.</p>
+          </div>
           <div role="tabpanel" id="panel-swap" aria-labelledby="tab-swap" hidden>
             <p class="pv-desc" id="swapText">Private swaps route through Jupiter, which only exists on Solana mainnet. They stay off in this devnet preview and on mainnet until the pool is audited.</p>
           </div>
