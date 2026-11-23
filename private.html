@@ -153,6 +153,17 @@
 
           <button class="cta" id="cta" type="submit" disabled>Connect wallet</button>
           <p class="msg" id="msg" role="status" aria-live="polite"></p>
+          <button class="btn pv-combine" type="button" id="combineBtn" hidden>Combine my notes</button>
+          <details class="pv-tips">
+            <summary>Privacy tips</summary>
+            <ul>
+              <li><b>Wait.</b> Unshielding soon after shielding makes the two easy to match. The more people use the pool in between, the better.</li>
+              <li><b>Avoid unique amounts.</b> Shielding 1.2345 SOL and unshielding 1.2345 SOL links them. Use round amounts, or unshield in parts.</li>
+              <li><b>Use a fresh destination</b> that has never touched your shielding wallet.</li>
+              <li><b>Use the relayer.</b> Paying the network fee from your own wallet puts that wallet in the withdrawal.</li>
+              <li>Amounts and token are visible when shielding and unshielding; private sends hide them.</li>
+            </ul>
+          </details>
         </form>
       </section>
 

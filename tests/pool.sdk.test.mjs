@@ -517,6 +517,72 @@ test('client shield → scan → unshield against mocked relayer/RPC (real Groth
   assert.equal(client.balance('SOL'), 0n); // spent input hidden until the change note is indexed
 });
 
+test('fragmented balance: 3 notes fail one withdrawal; combining merges the two largest, then it works (real proofs)', { timeout: 600_000 }, async () => {
+  const wasm = join(ROOT, 'assets', 'zk', 'transaction.wasm');
+  const zkey = join(ROOT, 'assets', 'zk', 'transaction_final.zkey');
+  if (!existsSync(wasm) || !existsSync(zkey)) assert.fail('fixtures missing: assets/zk artifacts');
+  const snarkjs = await snarkjsModule();
+  const web3 = loadWeb3();
+  const { proveInProcess } = await import('../assets/js/pool/prover.js');
+  const prover = { prove: (input) => proveInProcess(snarkjs, input, wasm, zkey) };
+  const relayerKp = web3.Keypair.generate();
+  const leaves = [];
+  const tree = new MerkleTree(20);
+  const relayed = [];
+  const fetchMock = async (url, opts = {}) => {
+    const u = new URL(url);
+    const json = (o) => ({ ok: true, status: 200, json: async () => o });
+    if (u.hostname === 'relayer.test') {
+      if (u.pathname === '/info') return json({ relayer: relayerKp.publicKey.toBase58(), feeBps: 30, minFeeLamports: { SOL: 2_500_000, USDC: 500_000, USDT: 500_000 }, createAtaFee: { USDC: 300_000, USDT: 300_000 }, cluster: 'devnet', programId: PROGRAM_ID });
+      if (u.pathname === '/commitments') {
+        const from = Number(u.searchParams.get('from'));
+        return json({ items: leaves.slice(from), nextIndex: leaves.length, root: U.bytesToHex(U.fieldToBytes(tree.root())) });
+      }
+      if (u.pathname === '/relay') {
+        relayed.push(JSON.parse(opts.body));
+        return json({ signature: 'relayedSig' });
+      }
+    }
+    const body = JSON.parse(opts.body);
+    const r = (result) => json({ jsonrpc: '2.0', id: body.id, result });
+    if (body.method === 'getLatestBlockhash') return r({ context: { slot: 1 }, value: { blockhash: web3.Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 100 } });
+    if (body.method === 'getMultipleAccounts') return r({ context: { slot: 1 }, value: body.params[0].map(() => null) });
+    if (body.method === 'getAccountInfo') return r({ context: { slot: 1 }, value: { lamports: 1 } });
+    throw new Error('unexpected ' + body.method);
+  };
+  const config = { ...POOL_CONFIG, RELAYER_URL: 'https://relayer.test', RPC: { devnet: ['https://rpc.test'] } };
+  const client = new PoolClient({ web3, config, prover, fetch: fetchMock });
+  client.setKeys(await deriveKeys(new Uint8Array(64).fill(44)));
+  const owner = web3.Keypair.generate().publicKey.toBase58();
+  const index = (tx, encs) => tx.commitments.forEach((c, i) => {
+    leaves.push({ index: leaves.length, commitment: U.bytesToHex(U.fieldToBytes(c)), encryptedOutput: U.bytesToBase64(encs[i]) });
+    tree.insert(c);
+  });
+  for (let i = 0; i < 3; i++) {
+    const sh = await client.buildShield({ symbol: 'SOL', amount: 100_000_000n, owner });
+    index(sh.tx, [sh.tx.extData.encryptedOutput1, sh.tx.extData.encryptedOutput2]);
+  }
+  assert.equal((await client.refresh('SOL')).balance, 300_000_000n);
+  const recipient = web3.Keypair.generate().publicKey.toBase58();
+  await assert.rejects(client.buildUnshield({ symbol: 'SOL', amount: 290_000_000n, recipientWallet: recipient }), (e) => e.code === 'FRAGMENTED');
+
+  const cons = await client.buildConsolidate({ symbol: 'SOL' });
+  assert.equal(cons.inputs.length, 2);
+  assert.equal(cons.combined, 200_000_000n - 2_500_000n);
+  const cp = parseRelayRequest(JSON.parse(JSON.stringify(cons.body)));
+  assert.equal(cp.extData.extAmount, 0n);
+  assert.equal(cp.extData.fee, 2_500_000n);
+  assert.equal(BigInt(cons.tx.publicSignals[2]), await extDataHash(cp.extData));
+  assert.ok(await snarkjs.groth16.verify(JSON.parse(readFileSync(join(ROOT, 'assets', 'zk', 'verification_key.json'), 'utf8')), cons.tx.publicSignals, cons.proof));
+  await client.relay(cons);
+  index(cons.tx, [cons.tx.extData.encryptedOutput1, cons.tx.extData.encryptedOutput2]);
+  // relay() hides the two spent inputs until the chain confirms their nullifiers
+  const after = await client.refresh('SOL');
+  assert.equal(after.balance, 300_000_000n - 2_500_000n);
+  const un = await client.buildUnshield({ symbol: 'SOL', amount: 290_000_000n, recipientWallet: recipient });
+  assert.equal(un.inputs.length, 2, 'now fits in one transaction');
+});
+
 /* ---------- private swap (transact_swap) ---------- */
 
 import { transactSwapInstructionData } from '../assets/js/pool/encode.js';

@@ -416,6 +416,35 @@ export class PoolClient {
     return { preBytes, bytes, lastValidBlockHeight: bh.value.lastValidBlockHeight, needsAta, inputs: ins, tx, args, proof, proveMs: ms, fee: 0n };
   }
 
+  /**
+   * Combine notes: a private send-to-self that merges the two largest unspent notes into one (minus
+   * the relayer fee). Needed when a balance is spread over more notes than one transaction can spend
+   * (the circuit takes 2 inputs). Returns the POST /relay body, like buildSend.
+   */
+  async buildConsolidate({ symbol, onProgress }) {
+    this.assertClusterAllowed();
+    this._requireKeys();
+    const t = this.token(symbol);
+    await this.refresh(symbol);
+    const notes = this.unspent(symbol).filter((n) => n.amount > 0n).sort((a, b) => (a.amount > b.amount ? -1 : a.amount < b.amount ? 1 : 0));
+    if (notes.length < 2) throw new PoolError('NOTHING_TO_COMBINE', 'Your balance is already in one note.');
+    const info = await this.relayerInfo();
+    const fee = requiredFee(info, symbol, 0n);
+    const ins = notes.slice(0, 2);
+    const total = ins[0].amount + ins[1].amount;
+    if (total <= fee) throw new PoolError('AMOUNT', 'These notes are too small to combine: the fee would use them up.');
+    const outputs = [new Note({ amount: total - fee, pubKey: this.keys.pubKey, encPublic: this.keys.encPublic, mint: t.mint })];
+    const feeAccount = this._relayerFeeAccount(info, t);
+    const st = this._st(t.mint);
+    const tx = await buildTransaction({
+      tree: st.tree, mintField: mintField(t.mint), inputs: ins, outputs,
+      extData: { recipient: feeAccount, relayer: feeAccount, extAmount: 0n, fee },
+    });
+    const { args, ms, proof } = await this._prove(tx, onProgress);
+    const body = relayRequestBody({ instruction: 'transact', pool: t.mint, args, extData: tx.extData });
+    return { body, fee, inputs: ins, tx, proof, proveMs: ms, combined: total - fee, remainingNotes: notes.length - 1 };
+  }
+
   /** Mark notes spent locally after a self-submitted transaction lands. */
   markPending(symbol, inputs) {
     const st = this._st(this.token(symbol).mint);

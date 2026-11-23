@@ -696,12 +696,43 @@ async function submit() {
       $('msg').textContent = friendly(e) + (S.tab === 'unshield' && !S.selfRelay && e instanceof PoolError && /^RELAYER/.test(e.code)
         ? ' You can also tick "Pay the network fee from my wallet" to withdraw without a relayer.' : '');
       toast('err', 'Not completed', friendly(e));
+      if (e instanceof PoolError && e.code === 'FRAGMENTED') {
+        $('combineBtn').hidden = false;
+        $('combineBtn').dataset.symbol = t.symbol;
+      }
     }
   } finally {
     S.busy = false;
     progress(null);
     render();
     refreshWalletBalances();
+    setTimeout(refreshPrivate, 1500);
+  }
+}
+
+/** Merge the two largest notes into one (private send to self through the relayer). */
+async function combineNotes() {
+  if (S.busy || !S.client) return;
+  const symbol = $('combineBtn').dataset.symbol || (S.token && S.token.symbol);
+  if (!symbol) return;
+  S.busy = true;
+  $('combineBtn').hidden = true;
+  $('msg').textContent = '';
+  setCta('Combining notes…', { disabled: true, spinner: true });
+  progress({ stage: 'download', pct: 0 });
+  try {
+    const built = await S.client.buildConsolidate({ symbol, onProgress: (p) => progress(p) });
+    progress({ label: 'Relaying', pct: 100, detail: '' });
+    const sig = await S.client.relay(built);
+    const t = S.client.token(symbol);
+    toast('ok', 'Notes combined', `Two notes merged into ${fmt(built.combined, t)} ${symbol} (fee ${fmt(built.fee, t)} ${symbol}). Try your transaction again once it is indexed.`, 9000, sig);
+  } catch (e) {
+    $('msg').textContent = friendly(e);
+    toast('err', 'Not completed', friendly(e));
+  } finally {
+    S.busy = false;
+    progress(null);
+    render();
     setTimeout(refreshPrivate, 1500);
   }
 }
@@ -713,6 +744,7 @@ function setTab(tab, focus = false) {
   S.quote = null;
   S.swapQuoteErr = '';
   $('msg').textContent = '';
+  $('combineBtn').hidden = true;
   try {
     localStorage.setItem(TAB_KEY, tab);
   } catch (_) {}
@@ -890,6 +922,7 @@ function bind() {
     scheduleSwapQuote();
   });
   $('maxBtn').addEventListener('click', setMax);
+  $('combineBtn').addEventListener('click', combineNotes);
   $('selfRelay').addEventListener('change', (e) => {
     S.selfRelay = e.target.checked;
     $('selfRelayHint').hidden = !S.selfRelay;

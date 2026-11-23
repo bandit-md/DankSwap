@@ -402,3 +402,8 @@ small.warn { color: var(--warn); }
 
 /* Self-relay warning (private pool) */
 .pv-warnhint { color: var(--warn); }
+.pv-combine { margin: 8px 4px 0; height: 38px; font-size: 14px; }
+.pv-tips { margin: 14px 4px 0; font-size: 13px; color: var(--muted); }
+.pv-tips summary { cursor: pointer; color: var(--text); font-size: 14px; }
+.pv-tips ul { margin: 8px 0 0; padding-left: 18px; }
+.pv-tips li { margin: 4px 0; }

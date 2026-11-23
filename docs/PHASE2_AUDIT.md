@@ -41,12 +41,12 @@ Status: **devnet preview**. Shield, private send, unshield via a relayer and pri
 
 **High**
 4. **Single relayer.** It can censor withdrawals (it cannot steal). *Mitigated:* the Unshield tab has a self-relay option (the user's wallet pays gas, with a linkability warning), suggested automatically when the relayer fails. Still to do: support multiple relayers.
-5. **Privacy at launch.** A small anonymity set, unique amounts and timing make links easy. The UI should warn about this and suggest waiting, using round amounts and splitting.
+5. **Privacy at launch.** A small anonymity set, unique amounts and timing make links easy. *Mitigated in the UI:* a "Privacy tips" section (wait, round amounts, fresh destination, prefer the relayer). The anonymity set itself only grows with use.
 6. **Relayer fees vs SOL price.** *Fixed:* token minimums now follow the live SOL price (Jupiter Price API, `DYNAMIC_FEES`, on by default on mainnet), with the configured values as the floor.
 7. **Program id is a placeholder.** Deploying with a new program id changes every PDA and the escrow address bound into the swap fixture proof, so fixtures must be regenerated after the first deploy (programs/README.md).
 
 **Medium**
-8. **Balance split across many notes.** More than 2 notes per transaction needs a manual "send to self" first. Add automatic consolidation.
+8. **Balance split across many notes.** *Fixed:* when a transaction needs more than 2 notes, the page offers "Combine my notes" (a private send to self that merges the two largest notes, through the relayer). Tested with real proofs.
 9. **Indexing depends on the free public RPC.** Slow or rate-limited scans hurt the UX. The relayer index helps, but users trust it for availability (not for correctness: notes are verified locally).
 10. **Tree capacity is 2^20 notes per pool.** When a pool fills, deposits stop (`TreeFull`) and a migration path is needed.
 11. **`swap_program` is set once at `initialize`** with no setter. Devnet (mock) and mainnet (Jupiter) need separate deployments; a switch means redeploying.
