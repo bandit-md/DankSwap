@@ -163,6 +163,9 @@ private sends and SPL unshields to existing token accounts work either way.
 | `MIN_FEE_SOL` | `3000000` | lamports (covers network fee + rent of two nullifier accounts ≈ 0.0019 SOL) |
 | `MIN_FEE_USDC`, `MIN_FEE_USDT` | `500000` | base units (0.50) |
 | `CREATE_ATA_FEE_USDC`, `CREATE_ATA_FEE_USDT` | `500000` | extra when the relayer creates the recipient's token account (≈0.002 SOL rent) |
+| `DYNAMIC_FEES` | `1` on mainnet, `0` otherwise | Raise the USDC/USDT minimums above to cover the relayer's SOL costs at the live SOL price (Jupiter Price API, free and keyless, polled each minute). The values above stay the floor; implausible prices are ignored and the last good fees are kept |
+| `FEE_MARGIN_BPS` | `2500` | Margin over cost for the live minimums (25%) |
+| `PRICE_API` | `https://api.jup.ag/price/v3` | Price source |
 | `RELAYER_LOOKUP_TABLE` | unset | address lookup table from `scripts/lookup-table.mjs` |
 | `INDEX_FILE` | `relayer/data/index.json` | JSON persistence of the commitment index |
 | `POLL_MS` | `15000` | index refresh interval |

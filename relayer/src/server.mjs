@@ -2,6 +2,7 @@
 // DankSwap private pool relayer: GET /info, POST /relay, GET /swap/quote, GET /commitments, GET /health
 // (docs/PHASE2_SPEC.md §9). Plain node:http, no framework. UNAUDITED; devnet unless explicitly allowed.
 import http from 'node:http';
+import { PriceFeed } from './pricing.mjs';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -155,6 +156,7 @@ export async function main(env = process.env) {
   const sanctions = (a) => bundledSanctions(a) || extra.has(a);
   const relayer = new Relayer({ web3, connection, keypair, config, sanctions });
   await relayer.loadLookupTable();
+  const priceFeed = config.dynamicFees ? new PriceFeed({ config }).start() : null;
   const indexer = new Indexer({ rpc: new Rpc([config.rpcUrl]), web3, programId: config.programId, tokens: config.tokens, file: config.indexFile });
   indexer.load();
   indexer.start(config.pollMs);
@@ -166,6 +168,7 @@ export async function main(env = process.env) {
   });
   const stop = () => {
     indexer.stop();
+    if (priceFeed) priceFeed.stop();
     server.close(() => process.exit(0));
   };
   process.on('SIGTERM', stop);

@@ -40,9 +40,9 @@ Status: **devnet preview**. Shield, private send, unshield via a relayer and pri
 3. **Phishing risk in key derivation.** The unlock message is fixed and domain-free, so a phishing site that gets the user to sign the same message learns their shielded spending key. Before launch, add the official domain and a warning to the message (spec §2). This must happen before any real deposit, since changing it changes every user's keys.
 
 **High**
-4. **Single relayer.** It can censor withdrawals (it cannot steal). Offer a self-relay fallback in the UI (the user's own wallet pays gas, which links that wallet) and support multiple relayers.
+4. **Single relayer.** It can censor withdrawals (it cannot steal). *Mitigated:* the Unshield tab has a self-relay option (the user's wallet pays gas, with a linkability warning), suggested automatically when the relayer fails. Still to do: support multiple relayers.
 5. **Privacy at launch.** A small anonymity set, unique amounts and timing make links easy. The UI should warn about this and suggest waiting, using round amounts and splitting.
-6. **Relayer fees are fixed in token units** (0.5 USDC/USDT minimum). If SOL rises far, token withdrawals that also create a token account could run at a loss. Price fees from a live SOL price.
+6. **Relayer fees vs SOL price.** *Fixed:* token minimums now follow the live SOL price (Jupiter Price API, `DYNAMIC_FEES`, on by default on mainnet), with the configured values as the floor.
 7. **Program id is a placeholder.** Deploying with a new program id changes every PDA and the escrow address bound into the swap fixture proof, so fixtures must be regenerated after the first deploy (programs/README.md).
 
 **Medium**

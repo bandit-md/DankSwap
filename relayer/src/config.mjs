@@ -119,6 +119,11 @@ export function loadConfig(env = process.env) {
     lookupTable: env.RELAYER_LOOKUP_TABLE || '',
     computeUnits: int(env, 'COMPUTE_UNITS', POOL_CONFIG.COMPUTE_UNITS),
     priorityMicroLamports: int(env, 'PRIORITY_MICROLAMPORTS', 0),
+    // Live token minimum fees from the SOL price (relayer/src/pricing.mjs). On by default on
+    // mainnet, where the relayer's SOL costs are real; DYNAMIC_FEES=0 turns it off.
+    dynamicFees: env.DYNAMIC_FEES !== undefined ? env.DYNAMIC_FEES === '1' : cluster === 'mainnet',
+    priceApi: (env.PRICE_API || 'https://api.jup.ag/price/v3').replace(/\/+$/, ''),
+    feeMarginBps: int(env, 'FEE_MARGIN_BPS', 2500),
     checkGenesis: env.SKIP_GENESIS_CHECK !== '1',
     extraSanctionsFile: env.SANCTIONS_FILE || '',
   };
