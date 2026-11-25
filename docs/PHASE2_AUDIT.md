@@ -23,6 +23,14 @@ Status: **devnet preview**. Shield, private send, unshield via a relayer and pri
 3. **CSP for the prover.** The proof worker compiles WebAssembly. Every host config now gives `private.html` and `prover.worker.js` a policy that allows `'wasm-unsafe-eval'` and nothing broader.
 4. **Front-running the first `initialize`.** Prevented: `initialize` requires the program's upgrade authority.
 
+5. **Index trusted without checking the chain** (second review pass). The page checked the relayer's commitment index only against the relayer's own root. A wrong or malicious index could not steal, but it could show a fake balance or waste proofs. **Fix:** every proof first checks its root against the pool's on-chain tree account. Tested with a self-consistent fake index.
+6. **Stale root on a busy pool** (second review pass). A proof whose root left the 100-root history before landing just failed. **Fix:** the client recognises UnknownRoot (6001), re-syncs and re-proves once.
+7. **Checked and fine:**
+   - No HTML injection: no `innerHTML` with dynamic data.
+   - Relayer CORS is configurable; `*` is acceptable since it has no cookies.
+   - The indexer ignores failed transactions and only accepts events logged by the pool program itself. Log lines from other programs can't pass as pool events.
+   - The relayer has no swap-program setter, so swap funds can only go through the program fixed at initialisation.
+
 ## Design properties checked
 
 - No instruction moves pool funds without a valid proof. The admin can only pause deposits (and swaps into a pool) and set deposit limits; **withdrawals cannot be paused**.
