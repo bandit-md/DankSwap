@@ -4,7 +4,7 @@
 import { getWallets, onWalletsChanged, connect, lastWalletName, isMobile, mobileDeepLinks, INSTALL_LINKS } from './wallet.js';
 import { parseUnits, formatUnits, formatUnitsPlain, shortAddress } from './lib.js';
 import { POOL_CONFIG, poolConfigured, showUnauditedBanner } from './pool/config.js';
-import { PoolClient, PoolError } from './pool/client.js';
+import { PoolClient, PoolError, isRetryableRelayerError } from './pool/client.js';
 import { Prover } from './pool/prover.js';
 import { deriveKeys, signUnlockMessage, isShieldedAddress } from './pool/keys.js';
 import { requiredFee } from './pool/fees.js';
@@ -122,7 +122,7 @@ async function checkPool() {
     S.deployed = null;
     notice(`Could not reach Solana ${CLUSTER}. Balances and actions will retry when you refresh.`);
   }
-  if (CFG.RELAYER_URL) {
+  if (CFG.RELAYER_URL || (CFG.RELAYER_URLS || []).length) {
     try {
       S.info = await S.client.relayerInfo();
     } catch (e) {
@@ -623,6 +623,25 @@ async function signAndSend(bytes, lastValidBlockHeight) {
   return sig;
 }
 
+/**
+ * Run a build-and-relay step; if the relayer is unreachable or failing and another is configured,
+ * switch and run it again (a new proof, since the proof binds the relayer's fee account).
+ */
+async function withRelayerFailover(run) {
+  const c = S.client;
+  let tries = Math.max(1, c.relayers.length);
+  for (;;) {
+    try {
+      return await run();
+    } catch (e) {
+      tries -= 1;
+      if (tries <= 0 || !isRetryableRelayerError(e) || !c.switchRelayer()) throw e;
+      S.info = await c.relayerInfo();
+      toast('', 'Trying another relayer', 'The relayer did not respond. Retrying with the next one; your funds are still in the pool.', 5000);
+    }
+  }
+}
+
 async function submit() {
   if (S.busy) return;
   if (!S.session) {
@@ -650,9 +669,11 @@ async function submit() {
       sig = await signAndSend(built.bytes, built.lastValidBlockHeight);
       toast('ok', 'Shielded', `${fmt(amt, t)} ${t.symbol} is now in your private balance.`, 8000, sig);
     } else if (S.tab === 'send') {
-      built = await c.buildSend({ symbol: t.symbol, amount: amt, to: S.to.trim(), onProgress });
-      progress({ label: 'Relaying', pct: 100, detail: '' });
-      sig = await c.relay(built);
+      sig = await withRelayerFailover(async () => {
+        built = await c.buildSend({ symbol: t.symbol, amount: amt, to: S.to.trim(), onProgress });
+        progress({ label: 'Relaying', pct: 100, detail: '' });
+        return c.relay(built);
+      });
       toast('ok', 'Sent privately', `${fmt(amt, t)} ${t.symbol} sent. Fee ${fmt(built.fee, t)} ${t.symbol}.`, 8000, sig);
     } else if (S.tab === 'unshield' && S.selfRelay) {
       built = await c.buildUnshieldSelf({ symbol: t.symbol, amount: amt, recipientWallet: S.to.trim(), payer: S.session.address, onProgress });
@@ -667,9 +688,11 @@ async function submit() {
       c.markPending(t.symbol, built.inputs);
       toast('ok', 'Unshielded', `${fmt(amt, t)} ${t.symbol} sent to ${shortAddress(S.to.trim())}. Your wallet paid the network fee.`, 8000, sig);
     } else if (S.tab === 'unshield') {
-      built = await c.buildUnshield({ symbol: t.symbol, amount: amt, recipientWallet: S.to.trim(), onProgress });
-      progress({ label: 'Relaying', pct: 100, detail: '' });
-      sig = await c.relay(built);
+      sig = await withRelayerFailover(async () => {
+        built = await c.buildUnshield({ symbol: t.symbol, amount: amt, recipientWallet: S.to.trim(), onProgress });
+        progress({ label: 'Relaying', pct: 100, detail: '' });
+        return c.relay(built);
+      });
       toast('ok', 'Unshielded', `${fmt(amt, t)} ${t.symbol} sent to ${shortAddress(S.to.trim())}. Fee ${fmt(built.fee, t)} ${t.symbol}.`, 8000, sig);
     } else if (S.tab === 'swap') {
       const to = S.toToken;

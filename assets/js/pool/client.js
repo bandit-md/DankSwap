@@ -86,6 +86,13 @@ export function selectNotes(notes, target) {
   return best;
 }
 
+/** Worth retrying with another relayer: unreachable, overloaded or failing (not a refusal). */
+export function isRetryableRelayerError(e) {
+  if (!(e instanceof PoolError)) return false;
+  if (e.code === 'RELAYER_DOWN') return true;
+  return e.code === 'RELAYER' && (e.status === 429 || (e.status >= 500 && e.status <= 599));
+}
+
 export class PoolClient {
   /**
    * @param {object} o
@@ -132,8 +139,29 @@ export class PoolClient {
     }
   }
 
+  /** Configured relayers: RELAYER_URL first, then RELAYER_URLS, de-duplicated. */
+  get relayers() {
+    const list = [this.config.RELAYER_URL, ...(this.config.RELAYER_URLS || [])]
+      .map((u) => (u || '').replace(/\/+$/, ''))
+      .filter(Boolean);
+    return [...new Set(list)];
+  }
+
+  get relayerUrl() {
+    const list = this.relayers;
+    return list.length ? list[(this.relayerIndex || 0) % list.length] : '';
+  }
+
+  /** Move to the next configured relayer (forgets the cached /info). False if there is only one. */
+  switchRelayer() {
+    if (this.relayers.length < 2) return false;
+    this.relayerIndex = ((this.relayerIndex || 0) + 1) % this.relayers.length;
+    this.info = null;
+    return true;
+  }
+
   _relayer(path) {
-    const base = (this.config.RELAYER_URL || '').replace(/\/+$/, '');
+    const base = this.relayerUrl;
     if (!base) throw new PoolError('NO_RELAYER', 'No relayer is configured for the private pool yet.');
     return base + path;
   }
@@ -146,13 +174,30 @@ export class PoolClient {
       throw new PoolError('RELAYER_DOWN', 'Could not reach the relayer. Check your connection and try again.');
     }
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new PoolError('RELAYER', j.error || `Relayer error (HTTP ${res.status})`);
+    if (!res.ok) throw new PoolError('RELAYER', j.error || `Relayer error (HTTP ${res.status})`, { status: res.status });
     return j;
   }
 
-  /** GET /info, cached. Refuses a relayer on another cluster or program. */
+  /**
+   * GET /info, cached. Refuses a relayer on another cluster or program. With several relayers
+   * configured, the first healthy one (starting from the current) is used.
+   */
   async relayerInfo(force = false) {
     if (this.info && !force) return this.info;
+    const n = Math.max(1, this.relayers.length);
+    let lastErr = null;
+    for (let i = 0; i < n; i++) {
+      try {
+        return await this._relayerInfoOnce();
+      } catch (e) {
+        lastErr = e;
+        if (!this.switchRelayer()) break;
+      }
+    }
+    throw lastErr;
+  }
+
+  async _relayerInfoOnce() {
     const info = await this._getJson('/info');
     if (info.cluster !== this.cluster) throw new PoolError('RELAYER', `The relayer runs on ${info.cluster}, this page on ${this.cluster}.`);
     if (info.programId !== this.config.POOL_PROGRAM_ID) throw new PoolError('RELAYER', 'The relayer serves a different pool program.');
@@ -488,7 +533,7 @@ export class PoolClient {
       throw new PoolError('RELAYER_DOWN', 'Could not reach the relayer. Your funds are still in the pool.');
     }
     const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j.signature) throw new PoolError('RELAYER', j.error || `The relayer refused the transaction (HTTP ${res.status}). Your funds are still in the pool.`);
+    if (!res.ok || !j.signature) throw new PoolError('RELAYER', j.error || `The relayer refused the transaction (HTTP ${res.status}). Your funds are still in the pool.`, { status: res.status });
     const st = this._st(built.body.pool);
     for (const n of built.inputs || []) if (n.index !== null) st.pending.add(n.index);
     return j.signature;

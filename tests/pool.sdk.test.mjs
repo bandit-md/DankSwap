@@ -21,7 +21,7 @@ import {
   instructionDiscriminator, eventDiscriminator, decodeNewCommitment, relayRequestBody, parseRelayRequest, argsFromRelay,
 } from '../assets/js/pool/encode.js';
 import { buildTransaction, instructionArgs, checkPublicSignals } from '../assets/js/pool/transaction.js';
-import { selectNotes, PoolClient } from '../assets/js/pool/client.js';
+import { selectNotes, PoolClient, PoolError, isRetryableRelayerError } from '../assets/js/pool/client.js';
 import { requiredFee, maxWithdrawable } from '../assets/js/pool/fees.js';
 import { isSanctioned, SANCTIONED_ADDRESSES } from '../assets/js/pool/sanctions.js';
 import { POOL_CONFIG, showUnauditedBanner } from '../assets/js/pool/config.js';
@@ -412,6 +412,37 @@ test('sanctions list and banner rule', () => {
   assert.equal(showUnauditedBanner({ POOL_CLUSTER: 'devnet', POOL_AUDITED: true }), true);
   assert.equal(showUnauditedBanner({ POOL_CLUSTER: 'mainnet', POOL_AUDITED: false }), true);
   assert.equal(showUnauditedBanner({ POOL_CLUSTER: 'mainnet', POOL_AUDITED: true }), false);
+});
+
+test('several relayers: first healthy one is used, failover on outage, refusals are not retried', async () => {
+  const web3 = loadWeb3();
+  const good = web3.Keypair.generate().publicKey.toBase58();
+  const calls = [];
+  const fetchMock = async (url) => {
+    calls.push(url);
+    const u = new URL(url);
+    if (u.hostname === 'down.test') throw new TypeError('Failed to fetch');
+    if (u.hostname === 'wrongnet.test') return { ok: true, status: 200, json: async () => ({ relayer: good, cluster: 'mainnet', programId: POOL_CONFIG.POOL_PROGRAM_ID }) };
+    return { ok: true, status: 200, json: async () => ({ relayer: good, cluster: 'devnet', programId: POOL_CONFIG.POOL_PROGRAM_ID, feeBps: 30, minFeeLamports: {} }) };
+  };
+  const config = { ...POOL_CONFIG, RELAYER_URL: 'https://down.test/', RELAYER_URLS: ['https://wrongnet.test', 'https://ok.test', 'https://down.test'] };
+  const c = new PoolClient({ web3, config, fetch: fetchMock });
+  assert.deepEqual(c.relayers, ['https://down.test', 'https://wrongnet.test', 'https://ok.test']);
+  const info = await c.relayerInfo();
+  assert.equal(info.relayer, good);
+  assert.equal(c.relayerUrl, 'https://ok.test', 'skips the unreachable and the wrong-cluster relayer');
+  assert.equal(calls.length, 3);
+  // all down: the last error surfaces
+  const d = new PoolClient({ web3, config: { ...POOL_CONFIG, RELAYER_URL: 'https://down.test', RELAYER_URLS: [] }, fetch: fetchMock });
+  await assert.rejects(d.relayerInfo(), (e) => e.code === 'RELAYER_DOWN');
+  assert.equal(d.switchRelayer(), false, 'nothing to switch to with one relayer');
+  // which errors trigger a failover
+  assert.ok(isRetryableRelayerError(new PoolError('RELAYER_DOWN', 'x')));
+  assert.ok(isRetryableRelayerError(new PoolError('RELAYER', 'x', { status: 503 })));
+  assert.ok(isRetryableRelayerError(new PoolError('RELAYER', 'x', { status: 429 })));
+  assert.ok(!isRetryableRelayerError(new PoolError('RELAYER', 'sanctions', { status: 403 })));
+  assert.ok(!isRetryableRelayerError(new PoolError('RELAYER', 'fee too low', { status: 400 })));
+  assert.ok(!isRetryableRelayerError(new Error('other')));
 });
 
 test('client refuses mainnet unless POOL_AUDITED', async () => {

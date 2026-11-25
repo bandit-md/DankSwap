@@ -15,6 +15,10 @@ export const POOL_CONFIG = {
   // user's wallet never appears on-chain, and serves the commitment index used for balances.
   // Empty = not configured. Must be https: the page's Content-Security-Policy only allows https.
   RELAYER_URL: '',
+  // More relayers (https, tried in order after RELAYER_URL). If one is unreachable or failing, the
+  // page switches to the next and re-proves (the proof binds the relayer's fee account). A refusal
+  // such as a sanctions hit is not retried elsewhere.
+  RELAYER_URLS: [],
 
   // Set to true only after independent audits of the circuits and the program and a public
   // multi-party trusted setup. Until then the "Unaudited" banner stays on every cluster.
