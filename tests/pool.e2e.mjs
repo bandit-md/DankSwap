@@ -13,7 +13,7 @@ import { UNLOCK_MESSAGE } from '../assets/js/pool/keys.js';
 import { base58Encode, bytesToHex, fieldToBytes, base64ToBytes, bytesToBase64, utf8, FIELD_SIZE } from '../assets/js/pool/util.js';
 import { MerkleTree } from '../assets/js/pool/merkle.js';
 import { decodeTransactArgs, encodeProof, extDataHash, parseRelayRequest, publicAmount } from '../assets/js/pool/encode.js';
-import { configPda, poolPda, escrowPda, nullifierPda } from '../assets/js/pool/accounts.js';
+import { configPda, poolPda, escrowPda, nullifierPda, treePda } from '../assets/js/pool/accounts.js';
 import { mintField, mintFieldBytes, decryptOutput, commitmentHash } from '../assets/js/pool/note.js';
 import { deriveKeys } from '../assets/js/pool/keys.js';
 import { requiredFee } from '../assets/js/pool/fees.js';
@@ -133,7 +133,17 @@ async function main() {
     const ok = (result) => r.fulfill({ headers: cors, json: { jsonrpc: '2.0', id: body.id, result } });
     const ctxSlot = { slot: 1 };
     switch (body.method) {
-      case 'getAccountInfo': return ok({ context: ctxSlot, value: body.params[0] === configKey ? { data: ['', 'base64'], executable: false, lamports: 1, owner: PROGRAM_ID, rentEpoch: 0 } : null });
+      case 'getAccountInfo': {
+        // tree accounts: the roots+counters slice the page checks its index against
+        for (const [mint, t] of [[WSOL, tree], [DEV_USDC, usdcTree]]) {
+          if (body.params[0] !== treePda(web3, PROGRAM_ID, mint).toBase58()) continue;
+          const buf = new Uint8Array(3216);
+          buf.set(fieldToBytes(t.root()), 0);
+          new DataView(buf.buffer).setBigUint64(3208, BigInt(t.nextIndex), true);
+          return ok({ context: ctxSlot, value: { data: [Buffer.from(buf).toString('base64'), 'base64'], executable: false, lamports: 1, owner: PROGRAM_ID, rentEpoch: 0 } });
+        }
+        return ok({ context: ctxSlot, value: body.params[0] === configKey ? { data: ['', 'base64'], executable: false, lamports: 1, owner: PROGRAM_ID, rentEpoch: 0 } : null });
+      }
       case 'getBalance': return ok({ context: ctxSlot, value: 2_000_000_000 });
       case 'getTokenAccountsByOwner': return ok({ context: ctxSlot, value: [] });
       case 'getMultipleAccounts': return ok({ context: ctxSlot, value: body.params[0].map((k) => (spentPdas.has(k) ? { data: ['', 'base64'], executable: false, lamports: 946_560, owner: PROGRAM_ID, rentEpoch: 0 } : null)) });

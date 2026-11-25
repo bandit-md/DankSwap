@@ -8,7 +8,7 @@ import { decodeAddress } from './keys.js';
 import { buildTransaction, instructionArgs, checkPublicSignals } from './transaction.js';
 import { encodeProof, relayRequestBody } from './encode.js';
 import {
-  associatedTokenAddress, createAtaIdempotentInstruction, computeUnitLimitInstruction, configPda, nullifierPda, transactInstruction,
+  associatedTokenAddress, createAtaIdempotentInstruction, computeUnitLimitInstruction, configPda, nullifierPda, transactInstruction, treePda,
 } from './accounts.js';
 import { swapEscrowAccounts } from './swap.js';
 import { requiredFee } from './fees.js';
@@ -289,8 +289,43 @@ export class PoolClient {
     return !!(r && r.value);
   }
 
-  async _prove(tx, onProgress) {
+  /**
+   * The on-chain tree for a pool: its 100 recent roots (hex) and next leaf index. Read with the
+   * free RPC, so the relayer's index is checked against the chain, not against itself.
+   */
+  async onChainTree(mint) {
+    const addr = treePda(this.web3, this.config.POOL_PROGRAM_ID, mint).toBase58();
+    // Zero-copy MerkleTree after the 8-byte discriminator: filled_subtrees (20×32), roots (100×32),
+    // current_root_index (u64), next_index (u64). Fetch only roots + the two counters.
+    const offset = 8 + 32 * this.config.TREE_LEVELS;
+    const r = await this.rpc.call('getAccountInfo', [addr, { encoding: 'base64', dataSlice: { offset, length: 32 * 100 + 16 } }]);
+    if (!r || !r.value) throw new PoolError('NOT_DEPLOYED', 'This pool does not exist on-chain yet.');
+    const data = base64ToBytes(r.value.data[0]);
+    if (data.length < 32 * 100 + 16) throw new PoolError('INDEX', 'Unexpected tree account layout.');
+    const roots = new Set();
+    for (let i = 0; i < 100; i++) roots.add(bytesToHex(data.subarray(i * 32, i * 32 + 32)));
+    roots.delete('0'.repeat(64));
+    const nextIndex = Number(new DataView(data.buffer, data.byteOffset + 3200 + 8, 8).getBigUint64(0, true));
+    return { roots, nextIndex };
+  }
+
+  /**
+   * Refuse to prove against a root the chain does not know. A relayer index that is wrong, stale
+   * or malicious cannot steal (the program checks the root), but it could show a fake balance or
+   * waste a proof; this catches it before proving, with a clear message.
+   */
+  async verifyRootOnChain(mint, root) {
+    const st = this._st(mint);
+    const chain = await this.onChainTree(mint);
+    if (chain.roots.has(bytesToHex(fieldToBytes(root)))) return true;
+    this.state.delete(mint); // rebuild from the index next time
+    if (chain.nextIndex > st.tree.nextIndex) throw new PoolError('INDEX_BEHIND', 'The relayer index is behind the chain. Wait a few seconds and try again.');
+    throw new PoolError('INDEX', 'The relayer index does not match the chain. Your funds are safe; try again later or use another relayer.');
+  }
+
+  async _prove(tx, onProgress, mint) {
     if (!this.prover) throw new PoolError('NO_PROVER', 'Proving is not available');
+    if (mint && this.config.VERIFY_ROOT_ONCHAIN !== false) await this.verifyRootOnChain(mint, tx.root);
     const { proof, publicSignals, ms } = await this.prover.prove(tx.input, onProgress);
     checkPublicSignals(tx, publicSignals);
     return { proof, ms, args: instructionArgs(tx, encodeProof(proof)) };
@@ -323,7 +358,7 @@ export class PoolClient {
       tree: st.tree, mintField: mintField(t.mint), inputs: [], outputs: [out],
       extData: { recipient: counterparty, relayer: counterparty, extAmount: amt, fee: 0n },
     });
-    const { args, ms, proof } = await this._prove(tx, onProgress);
+    const { args, ms, proof } = await this._prove(tx, onProgress, t.mint);
     const ix = await transactInstruction(web3, {
       programId: this.config.POOL_PROGRAM_ID, mint: t.mint, native, signer: owner,
       nullifiers: args.inputNullifiers, recipient: counterparty, relayerFeeAccount: counterparty,
@@ -406,7 +441,7 @@ export class PoolClient {
       tree: st.tree, mintField: mintField(t.mint), inputs: ins, outputs,
       extData: { recipient: q.recipient, relayer: this._relayerFeeAccount(q.info, t), extAmount: -amt, fee: q.fee },
     });
-    const { args, ms, proof } = await this._prove(tx, onProgress);
+    const { args, ms, proof } = await this._prove(tx, onProgress, t.mint);
     const body = relayRequestBody({ instruction: 'transact', pool: t.mint, args, extData: tx.extData, recipientOwner: t.native ? undefined : recipientWallet });
     return { body, fee: q.fee, needsAta: q.needsAta, inputs: ins, tx, proof, proveMs: ms };
   }
@@ -446,7 +481,7 @@ export class PoolClient {
       tree: st.tree, mintField: mintField(t.mint), inputs: ins, outputs,
       extData: { recipient, relayer: recipient, extAmount: -amt, fee: 0n },
     });
-    const { args, ms, proof } = await this._prove(tx, onProgress);
+    const { args, ms, proof } = await this._prove(tx, onProgress, t.mint);
     const ix = await transactInstruction(web3, {
       programId: this.config.POOL_PROGRAM_ID, mint: t.mint, native: !!t.native, signer: payer,
       nullifiers: args.inputNullifiers, recipient, relayerFeeAccount: recipient, signerTokenAccount: null,
@@ -485,7 +520,7 @@ export class PoolClient {
       tree: st.tree, mintField: mintField(t.mint), inputs: ins, outputs,
       extData: { recipient: feeAccount, relayer: feeAccount, extAmount: 0n, fee },
     });
-    const { args, ms, proof } = await this._prove(tx, onProgress);
+    const { args, ms, proof } = await this._prove(tx, onProgress, t.mint);
     const body = relayRequestBody({ instruction: 'transact', pool: t.mint, args, extData: tx.extData });
     return { body, fee, inputs: ins, tx, proof, proveMs: ms, combined: total - fee, remainingNotes: notes.length - 1 };
   }
@@ -519,7 +554,7 @@ export class PoolClient {
       tree: st.tree, mintField: mintField(t.mint), inputs: ins, outputs,
       extData: { recipient: feeAccount, relayer: feeAccount, extAmount: 0n, fee },
     });
-    const { args, ms, proof } = await this._prove(tx, onProgress);
+    const { args, ms, proof } = await this._prove(tx, onProgress, t.mint);
     const body = relayRequestBody({ instruction: 'transact', pool: t.mint, args, extData: tx.extData });
     return { body, fee, inputs: ins, tx, proof, proveMs: ms };
   }
@@ -627,7 +662,7 @@ export class PoolClient {
       extData: { recipient: e.escrow, relayer: this._relayerFeeAccount(info, tIn), extAmount: -amt, fee },
       swap: { mintField: mintField(tOut.mint), amount: q.minOut, pubKey: this.keys.pubKey, encPublic: this.keys.encPublic },
     });
-    const { args, ms, proof } = await this._prove(tx, onProgress);
+    const { args, ms, proof } = await this._prove(tx, onProgress, tIn.mint);
     // swapData stays empty: the relayer re-routes |extAmount| and fills in the route itself.
     const body = relayRequestBody({ instruction: 'transact_swap', pool: tIn.mint, args: { ...args, outputPool: tOut.mint }, extData: tx.extData });
     return { body, fee, quote: q, inputs: ins, tx, proof, proveMs: ms, swapNote: tx.swapNote, escrow: e.escrow, toToken: tOut.symbol };

@@ -50,6 +50,18 @@ async function circuitsLib(name) {
   return import(p);
 }
 
+/** Fake getAccountInfo reply for a pool's tree account (the roots+counters slice the client reads). */
+function treeAccountReply(web3, trees, address) {
+  for (const [mint, tree] of Object.entries(trees)) {
+    if (A.treePda(web3, PROGRAM_ID, mint).toBase58() !== address) continue;
+    const buf = new Uint8Array(3216);
+    buf.set(U.fieldToBytes(tree.root()), 0);
+    new DataView(buf.buffer).setBigUint64(3208, BigInt(tree.nextIndex), true);
+    return { data: [U.bytesToBase64(buf), 'base64'], lamports: 1, owner: PROGRAM_ID, executable: false, rentEpoch: 0 };
+  }
+  return undefined;
+}
+
 function loadWeb3() {
   for (const p of [join(ROOT, 'relayer', 'node_modules', '@solana', 'web3.js')]) {
     if (existsSync(p)) return require(p);
@@ -438,6 +450,37 @@ test('sanctions list and banner rule', () => {
   assert.equal(showUnauditedBanner({ POOL_CLUSTER: 'mainnet', POOL_AUDITED: true }), false);
 });
 
+test('a relayer index that does not match the chain is refused before proving', async () => {
+  const web3 = loadWeb3();
+  const chainTree = new MerkleTree(20); // empty on-chain tree
+  const fakeLeaf = 12345n;
+  const fetchMock = async (url, opts = {}) => {
+    const u = new URL(url);
+    const json = (o) => ({ ok: true, status: 200, json: async () => o });
+    if (u.hostname === 'relayer.test') {
+      if (u.pathname === '/info') return json({ relayer: web3.Keypair.generate().publicKey.toBase58(), feeBps: 30, minFeeLamports: { SOL: 1 }, cluster: 'devnet', programId: PROGRAM_ID });
+      if (u.pathname === '/commitments') {
+        // a lying index: one leaf the chain never had, and a matching (self-consistent) root
+        const t = new MerkleTree(20);
+        t.insert(fakeLeaf);
+        return json({ items: Number(u.searchParams.get('from')) === 0 ? [{ index: 0, commitment: U.bytesToHex(U.fieldToBytes(fakeLeaf)), encryptedOutput: U.bytesToBase64(new Uint8Array(87)) }] : [], nextIndex: 1, root: U.bytesToHex(U.fieldToBytes(t.root())) });
+      }
+    }
+    const body = JSON.parse(opts.body);
+    const r = (result) => json({ jsonrpc: '2.0', id: body.id, result });
+    if (body.method === 'getAccountInfo') return r({ context: { slot: 1 }, value: treeAccountReply(web3, { [WSOL]: chainTree }, body.params[0]) || null });
+    if (body.method === 'getLatestBlockhash') return r({ context: { slot: 1 }, value: { blockhash: web3.Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 1 } });
+    throw new Error('unexpected ' + body.method);
+  };
+  let proved = false;
+  const prover = { prove: async () => { proved = true; throw new Error('should not prove'); } };
+  const config = { ...POOL_CONFIG, RELAYER_URL: 'https://relayer.test', RPC: { devnet: ['https://rpc.test'] } };
+  const c = new PoolClient({ web3, config, prover, fetch: fetchMock });
+  c.setKeys(await deriveKeys(new Uint8Array(64).fill(9)));
+  await assert.rejects(c.buildShield({ symbol: 'SOL', amount: 1_000_000n, owner: web3.Keypair.generate().publicKey.toBase58() }), (e) => e.code === 'INDEX');
+  assert.equal(proved, false, 'no proof is built against an unknown root');
+});
+
 test('several relayers: first healthy one is used, failover on outage, refusals are not retried', async () => {
   const web3 = loadWeb3();
   const good = web3.Keypair.generate().publicKey.toBase58();
@@ -520,6 +563,10 @@ test('client shield → scan → unshield against mocked relayer/RPC (real Groth
     const r = (result) => json({ jsonrpc: '2.0', id: body.id, result });
     if (body.method === 'getLatestBlockhash') return r({ context: { slot: 1 }, value: { blockhash: web3.Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 100 } });
     if (body.method === 'getMultipleAccounts') return r({ context: { slot: 1 }, value: body.params[0].map(() => null) });
+    if (body.method === 'getAccountInfo') {
+      const ta = treeAccountReply(web3, { [WSOL]: tree }, body.params[0]);
+      if (ta) return r({ context: { slot: 1 }, value: ta });
+    }
     if (body.method === 'getAccountInfo') return r({ context: { slot: 1 }, value: null });
     throw new Error('unexpected ' + url + ' ' + body.method);
   };
@@ -602,6 +649,10 @@ test('fragmented balance: 3 notes fail one withdrawal; combining merges the two 
     const r = (result) => json({ jsonrpc: '2.0', id: body.id, result });
     if (body.method === 'getLatestBlockhash') return r({ context: { slot: 1 }, value: { blockhash: web3.Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 100 } });
     if (body.method === 'getMultipleAccounts') return r({ context: { slot: 1 }, value: body.params[0].map(() => null) });
+    if (body.method === 'getAccountInfo') {
+      const ta = treeAccountReply(web3, { [WSOL]: tree }, body.params[0]);
+      if (ta) return r({ context: { slot: 1 }, value: ta });
+    }
     if (body.method === 'getAccountInfo') return r({ context: { slot: 1 }, value: { lamports: 1 } });
     throw new Error('unexpected ' + body.method);
   };
@@ -802,6 +853,10 @@ test('client swap SOL→USDC against mocked relayer: real proof with swap public
     }
     const body = JSON.parse(opts.body);
     const r = (result) => json({ jsonrpc: '2.0', id: body.id, result });
+    if (body.method === 'getAccountInfo') {
+      const ta = treeAccountReply(web3, { [WSOL]: pools[WSOL].tree, [DEV_USDC]: pools[DEV_USDC].tree }, body.params[0]);
+      if (ta) return r({ context: { slot: 1 }, value: ta });
+    }
     if (body.method === 'getMultipleAccounts') return r({ context: { slot: 1 }, value: body.params[0].map(() => null) });
     throw new Error('unexpected ' + url);
   };
