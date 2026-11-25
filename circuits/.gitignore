@@ -1,3 +1,6 @@
 node_modules/
 build/
 *.ptau
+# Ceremony zkeys are large: publish them elsewhere; commit ceremony/transcript.json
+ceremony/*.zkey
+ptau/

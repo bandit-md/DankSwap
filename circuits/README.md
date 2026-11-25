@@ -75,6 +75,19 @@ All proofs use the SOL pool, so recipient/relayer are system accounts. The swap 
 
 ## Production trusted setup (spec §11)
 
+`scripts/ceremony.mjs` (`npm run ceremony -- <command>`) runs the phase 2 ceremony and keeps a public transcript (`ceremony/transcript.json`: file hashes, contributor names, contribution hashes, beacon):
+
+```bash
+npm run ceremony -- init /path/to/powersOfTau28_hez_final_14.ptau   # coordinator; refuses the dev ptau
+npm run ceremony -- contribute "Alice (@alice)"                       # each participant in turn, on their own machine
+npm run ceremony -- verify                                            # anyone: hashes + full chain check (PTAU=/path/to.ptau)
+npm run ceremony -- finalize <beacon hex> "drand round 1234567"       # pre-announced public randomness
+npm run ceremony -- install                                           # copy keys into assets/zk/, Rust VK, regenerate fixtures
+```
+
+Tested end to end with two contributors and a beacon in test mode (`CEREMONY_TEST=1`, which may use the dev ptau, works in `CEREMONY_DIR` and refuses to `install`). A tampered contribution file is rejected. After `install`, rebuild and redeploy the program: the verifying key changes. The manual steps below are what the script automates.
+
+
 Do **not** ship the dev keys. Before mainnet:
 
 1. **Freeze and audit the circuit.** Independent audit of `transaction.circom`, `keypair.circom`, `merkleproof.circom`

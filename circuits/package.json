@@ -8,7 +8,8 @@
     "build": "node scripts/build.mjs",
     "vk:rust": "node scripts/vk-to-rust.mjs",
     "fixtures": "node scripts/gen-fixtures.mjs",
-    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "ceremony": "node scripts/ceremony.mjs"
   },
   "devDependencies": {
     "circom2": "0.2.22",
