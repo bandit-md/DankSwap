@@ -630,10 +630,17 @@ async function signAndSend(bytes, lastValidBlockHeight) {
 async function withRelayerFailover(run) {
   const c = S.client;
   let tries = Math.max(1, c.relayers.length);
+  let staleRetried = false;
   for (;;) {
     try {
       return await run();
     } catch (e) {
+      // Stale root: same relayer, fresh sync and proof (once).
+      if (e instanceof PoolError && e.code === 'STALE_ROOT' && !staleRetried) {
+        staleRetried = true;
+        toast('', 'Updating', e.message, 4000);
+        continue;
+      }
       tries -= 1;
       if (tries <= 0 || !isRetryableRelayerError(e) || !c.switchRelayer()) throw e;
       S.info = await c.relayerInfo();

@@ -21,7 +21,7 @@ import {
   instructionDiscriminator, eventDiscriminator, decodeNewCommitment, relayRequestBody, parseRelayRequest, argsFromRelay,
 } from '../assets/js/pool/encode.js';
 import { buildTransaction, instructionArgs, checkPublicSignals } from '../assets/js/pool/transaction.js';
-import { selectNotes, PoolClient, PoolError, isRetryableRelayerError } from '../assets/js/pool/client.js';
+import { selectNotes, PoolClient, PoolError, isRetryableRelayerError, isUnknownRootFailure } from '../assets/js/pool/client.js';
 import { requiredFee, maxWithdrawable } from '../assets/js/pool/fees.js';
 import { isSanctioned, SANCTIONED_ADDRESSES } from '../assets/js/pool/sanctions.js';
 import { POOL_CONFIG, showUnauditedBanner } from '../assets/js/pool/config.js';
@@ -479,6 +479,19 @@ test('a relayer index that does not match the chain is refused before proving', 
   c.setKeys(await deriveKeys(new Uint8Array(64).fill(9)));
   await assert.rejects(c.buildShield({ symbol: 'SOL', amount: 1_000_000n, owner: web3.Keypair.generate().publicKey.toBase58() }), (e) => e.code === 'INDEX');
   assert.equal(proved, false, 'no proof is built against an unknown root');
+});
+
+test('stale root during relay is recognised and resets the pool state for a fresh proof', async () => {
+  assert.ok(isUnknownRootFailure({ details: { logs: ['Program log: AnchorError occurred. Error Code: UnknownRoot. Error Number: 6001. Error Message: Unknown Merkle root.'] } }));
+  assert.ok(isUnknownRootFailure({ details: { err: { InstructionError: [1, { Custom: 6001 }] }, logs: [] } }));
+  assert.ok(!isUnknownRootFailure({ details: { err: { InstructionError: [1, { Custom: 6005 }] }, logs: ['Error Number: 6005'] } }));
+  assert.ok(!isUnknownRootFailure({ error: 'Fee too low' }));
+  const web3 = loadWeb3();
+  const fetchMock = async () => ({ ok: false, status: 400, json: async () => ({ error: 'Simulation failed', details: { err: { InstructionError: [1, { Custom: 6001 }] }, logs: [] } }) });
+  const c = new PoolClient({ web3, config: { ...POOL_CONFIG, RELAYER_URL: 'https://relayer.test' }, fetch: fetchMock });
+  c._st(WSOL); // some cached state
+  await assert.rejects(c.relay({ body: { pool: WSOL }, inputs: [] }), (e) => e.code === 'STALE_ROOT');
+  assert.equal(c.state.has(WSOL), false, 'state dropped so the next proof re-syncs');
 });
 
 test('several relayers: first healthy one is used, failover on outage, refusals are not retried', async () => {

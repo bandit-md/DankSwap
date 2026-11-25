@@ -86,6 +86,16 @@ export function selectNotes(notes, target) {
   return best;
 }
 
+/** The program rejected the proof's root as unknown (error 6001 UnknownRoot) during simulation. */
+export function isUnknownRootFailure(j) {
+  const d = j && j.details;
+  if (!d) return false;
+  const logs = Array.isArray(d.logs) ? d.logs.join('\n') : '';
+  if (/UnknownRoot|Error Number: 6001\b/.test(logs)) return true;
+  const err = d.err && d.err.InstructionError;
+  return Array.isArray(err) && err[1] && err[1].Custom === 6001;
+}
+
 /** Worth retrying with another relayer: unreachable, overloaded or failing (not a refusal). */
 export function isRetryableRelayerError(e) {
   if (!(e instanceof PoolError)) return false;
@@ -568,7 +578,15 @@ export class PoolClient {
       throw new PoolError('RELAYER_DOWN', 'Could not reach the relayer. Your funds are still in the pool.');
     }
     const j = await res.json().catch(() => ({}));
-    if (!res.ok || !j.signature) throw new PoolError('RELAYER', j.error || `The relayer refused the transaction (HTTP ${res.status}). Your funds are still in the pool.`, { status: res.status });
+    if (!res.ok || !j.signature) {
+      // The proof's root fell out of the program's 100-root history before it landed (busy pool):
+      // nothing moved; re-sync and prove again.
+      if (isUnknownRootFailure(j)) {
+        this.state.delete(built.body.pool);
+        throw new PoolError('STALE_ROOT', 'The pool moved on while your proof was being made. Nothing was sent; retrying with the latest state.', { status: res.status });
+      }
+      throw new PoolError('RELAYER', j.error || `The relayer refused the transaction (HTTP ${res.status}). Your funds are still in the pool.`, { status: res.status });
+    }
     const st = this._st(built.body.pool);
     for (const n of built.inputs || []) if (n.index !== null) st.pending.add(n.index);
     return j.signature;
