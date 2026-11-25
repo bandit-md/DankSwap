@@ -37,7 +37,7 @@ Status: **devnet preview**. Shield, private send, unshield via a relayer and pri
 **Critical**
 1. **Trusted setup is development-only** (single contributor). Anyone with the toxic waste could forge proofs and drain the pool. Run a public multi-party phase 2 on a public Powers of Tau (circuits/README.md).
 2. **No independent audits** of the circuits, program, SDK or relayer.
-3. **Phishing risk in key derivation.** The unlock message is fixed and domain-free, so a phishing site that gets the user to sign the same message learns their shielded spending key. Before launch, add the official domain and a warning to the message (spec §2). This must happen before any real deposit, since changing it changes every user's keys.
+3. **Phishing risk in key derivation.** *Mechanism built:* with `SITE_DOMAIN` set, unlocking signs a fixed Sign-In-With-Solana message for that domain, so SIWS-aware wallets warn on phishing sites, and the page refuses to unlock on another host. **Still to do: choose the domain and set it once, before any real deposit** (it changes every user's keys).
 
 **High**
 4. **Single relayer.** It can censor withdrawals (it cannot steal). *Mitigated:* the Unshield tab has a self-relay option (the user's wallet pays gas, with a linkability warning), suggested automatically when the relayer fails. Also fixed: several relayers can be configured (`RELAYER_URLS`). The page uses the first healthy one and, if it is unreachable or failing, switches and re-proves automatically; refusals are not retried. Remaining: actually run more than one independent relayer.

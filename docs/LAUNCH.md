@@ -28,7 +28,7 @@ Devnet:
 Before mainnet (see `docs/PHASE2_AUDIT.md`):
 - [ ] Public multi-party trusted setup.
 - [ ] Two independent audits of circuits and program, plus a review of the SDK and relayer.
-- [ ] Put the official domain in the unlock message (phishing protection) before any real deposit.
+- [ ] Set `SITE_DOMAIN` in `assets/js/pool/config.js` to the official host name (phishing protection: wallets warn on other sites). Set it once, before any real deposit; changing it later changes every user's keys.
 - [ ] Self-relay fallback and a second relayer.
 - [ ] Move the upgrade authority to a timelocked multisig, then freeze it.
 - [ ] Legal review specific to privacy tooling; production sanctions screening.

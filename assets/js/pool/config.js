@@ -24,6 +24,12 @@ export const POOL_CONFIG = {
   // multi-party trusted setup. Until then the "Unaudited" banner stays on every cluster.
   POOL_AUDITED: false,
 
+  // Official site host name, e.g. 'dankswap.example' (no https://, no path). When set, unlocking
+  // signs a Sign-In-With-Solana message for this domain, so wallets warn about phishing sites, and
+  // the page refuses to unlock on any other host. Every user's private keys derive from this
+  // message: set it ONCE before any real deposit and never change it. '' = v1 devnet message.
+  SITE_DOMAIN: '',
+
   // Free public RPC per cluster (tried in order).
   RPC: {
     devnet: ['https://api.devnet.solana.com'],

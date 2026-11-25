@@ -11,6 +11,33 @@ export const UNLOCK_MESSAGE =
 export const ADDRESS_PREFIX = 'dank';
 
 /**
+ * The message whose signature derives the shielded keys. With no domain configured, the v1 devnet
+ * message above. With POOL_CONFIG.SITE_DOMAIN set, a fixed Sign-In-With-Solana (SIWS) message: no
+ * nonce or timestamp, so it is the same every time for a wallet (deterministic keys), and wallets
+ * that understand SIWS (e.g. Phantom) warn the user when the requesting site is not that domain.
+ * That warning is the phishing protection: a copycat site asking for this signature would learn
+ * the user's private keys. Changing the domain changes every user's keys, so set it once, before
+ * any real deposit.
+ */
+export function unlockMessage({ domain = '', address = '' } = {}) {
+  if (!domain) return UNLOCK_MESSAGE;
+  if (!/^[a-z0-9.-]+(:\d+)?$/i.test(domain)) throw new Error('SITE_DOMAIN must be a bare host name like dankswap.example');
+  if (!address) throw new Error('A wallet address is needed for the sign-in message');
+  return [
+    `${domain} wants you to sign in with your Solana account:`,
+    address,
+    '',
+    'Unlock your DankSwap private balance. Only sign this on ' + domain + '. Signing it on any other site gives that site your private balance. This is free and does not move funds.',
+    '',
+    `URI: https://${domain}`,
+    'Version: 1',
+    'Chain ID: mainnet',
+    'Resources:',
+    '- DankSwap shielded account v2',
+  ].join('\n');
+}
+
+/**
  * Derive every shielded key from the wallet's signature of UNLOCK_MESSAGE.
  * seed = sha256(sig); privKey = BE(sha256(seed ++ 0x01)) mod p; pubKey = Poseidon(privKey);
  * encSecret = sha256(seed ++ 0x02); encPublic = X25519 public key of encSecret.
@@ -52,10 +79,14 @@ export function isShieldedAddress(str) {
  * 64-byte signature. The signature is checked against the account's public key, so a wallet
  * that returns something else cannot silently give the user a different shielded account.
  */
-export async function signUnlockMessage(wallet, account) {
+export async function signUnlockMessage(wallet, account, { domain = '', currentHost = '' } = {}) {
   const feature = wallet && wallet.features && wallet.features['solana:signMessage'];
   if (!feature) throw new Error('This wallet cannot sign messages. Try Phantom, Solflare or Backpack.');
-  const message = utf8(UNLOCK_MESSAGE);
+  if (domain && currentHost && currentHost !== domain) {
+    // A mirror or copy of the site must not collect signatures for the official domain.
+    throw new Error(`For your safety, unlock your private balance only on ${domain}.`);
+  }
+  const message = utf8(unlockMessage({ domain, address: account && account.address }));
   const [out] = await feature.signMessage({ account, message });
   const sig = out && (out.signature instanceof Uint8Array ? out.signature : out.signature ? Uint8Array.from(out.signature) : null);
   if (!sig || sig.length !== 64) throw new Error('The wallet returned no signature');

@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { poseidon } from '../assets/vendor/poseidon.bundle.js';
 import nacl from '../assets/vendor/tweetnacl.min.js';
 import * as U from '../assets/js/pool/util.js';
-import { deriveKeys, encodeAddress, decodeAddress, UNLOCK_MESSAGE, signUnlockMessage } from '../assets/js/pool/keys.js';
+import { deriveKeys, encodeAddress, decodeAddress, UNLOCK_MESSAGE, signUnlockMessage, unlockMessage } from '../assets/js/pool/keys.js';
 import {
   Note, mintField, mintFieldBytes, encryptOutput, decryptOutput, tryDecryptNote, commitmentHash, nullifierHash, ENCRYPTED_OUTPUT_LENGTH,
 } from '../assets/js/pool/note.js';
@@ -198,6 +198,30 @@ test('signUnlockMessage verifies the wallet signature', async () => {
   const bad = { features: { 'solana:signMessage': { signMessage: async () => [{ signature: new Uint8Array(64) }] } } };
   await assert.rejects(signUnlockMessage(bad, account), /did not verify/);
   await assert.rejects(signUnlockMessage({ features: {} }, account), /cannot sign messages/);
+});
+
+test('domain-bound unlock message (SIWS format) and host check', async () => {
+  assert.equal(unlockMessage(), UNLOCK_MESSAGE, 'no domain: v1 devnet message');
+  const kp = nacl.sign.keyPair();
+  const address = U.base58Encode(kp.publicKey);
+  const m = unlockMessage({ domain: 'dankswap.example', address });
+  const lines = m.split('\n');
+  assert.equal(lines[0], 'dankswap.example wants you to sign in with your Solana account:');
+  assert.equal(lines[1], address);
+  assert.ok(lines.includes('URI: https://dankswap.example'));
+  assert.ok(!/Nonce|Issued At/.test(m), 'no nonce or time: keys stay deterministic');
+  assert.equal(unlockMessage({ domain: 'dankswap.example', address }), m, 'stable');
+  assert.throws(() => unlockMessage({ domain: 'https://dankswap.example/x', address }), /bare host name/);
+  const account = { address, publicKey: kp.publicKey };
+  let signed = null;
+  const wallet = { features: { 'solana:signMessage': { signMessage: async ({ message }) => { signed = message; return [{ signedMessage: message, signature: nacl.sign.detached(message, kp.secretKey) }]; } } } };
+  const sig = await signUnlockMessage(wallet, account, { domain: 'dankswap.example', currentHost: 'dankswap.example' });
+  assert.equal(new TextDecoder().decode(signed), m);
+  assert.equal(sig.length, 64);
+  // different domain => different keys (why it must be set once, before real deposits)
+  const sigV1 = nacl.sign.detached(new TextEncoder().encode(UNLOCK_MESSAGE), kp.secretKey);
+  assert.notEqual((await deriveKeys(sig)).pubKey, (await deriveKeys(sigV1)).pubKey);
+  await assert.rejects(signUnlockMessage(wallet, account, { domain: 'dankswap.example', currentHost: 'dankswap-example.evil' }), /only on dankswap\.example/);
 });
 
 test('encrypted outputs are 87 bytes and decrypt only with the right key', async () => {

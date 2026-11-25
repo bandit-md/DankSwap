@@ -289,7 +289,7 @@ async function unlock() {
   S.busy = true;
   setCta('Check your wallet…', { disabled: true, spinner: true });
   try {
-    const sig = await signUnlockMessage(S.session.wallet, S.session.account);
+    const sig = await signUnlockMessage(S.session.wallet, S.session.account, { domain: CFG.SITE_DOMAIN || '', currentHost: location.host });
     const keys = await deriveKeys(sig);
     sig.fill(0);
     const c = await ensureClient();

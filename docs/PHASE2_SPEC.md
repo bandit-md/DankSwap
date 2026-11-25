@@ -19,6 +19,7 @@ All three workstreams MUST follow the encodings below byte-for-byte. Cross-check
 - Shielded key seed: the user's wallet signs the UTF-8 message
   `DankSwap shielded account v1\n\nSign to unlock your private balance. This is free and does not move funds.`
   `seed = sha256(signatureBytes)`.
+  Production (when `POOL_CONFIG.SITE_DOMAIN` is set): the message is instead a fixed Sign-In-With-Solana message for that domain and the wallet address, with no nonce or timestamp (`unlockMessage()` in `assets/js/pool/keys.js`). The text is the same every time, so keys stay deterministic, and SIWS-aware wallets warn the user when the requesting site is not the domain. Keys depend on the message, so the domain is set once, before any real deposit.
 - `privKey = BE(sha256(seed ++ 0x01)) mod p`. `pubKey = Poseidon(privKey)`.
 - Encryption keypair (X25519, tweetnacl `box`): `encSecret = sha256(seed ++ 0x02)`; `encPublic = nacl.box.keyPair.fromSecretKey(encSecret).publicKey`.
 - Shielded address string: `"dank" + base58(pubKey32BE ++ encPublic32)`.
